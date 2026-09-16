@@ -69,7 +69,7 @@ jobs:
               "  if (config.authType === 'qwen-oauth') return 'dashscope';\n  if (config.authType === 'qwen-web') return 'qwen';",
           )
 
-          # CLI bootstrap parser parity.
+          # CLI parser, env-model resolver, and pre-flight auth parity.
           replace_once(
               'packages/cli/src/config/top-level-options.ts',
               "  'qwen-oauth',\n  'gemini',",
@@ -80,19 +80,27 @@ jobs:
               "  'qwen-oauth': true,\n  gemini: true,",
               "  'qwen-oauth': true,\n  'qwen-web': true,\n  gemini: true,",
           )
-
-          # CLI pre-flight auth: browser session, no API key prompt.
+          replace_once(
+              'packages/cli/src/utils/modelConfigUtils.ts',
+              "  [AuthType.QWEN_OAUTH]: [],\n};",
+              "  [AuthType.QWEN_OAUTH]: [],\n  [AuthType.QWEN_WEB]: [],\n};",
+          )
           replace_once(
               'packages/cli/src/config/auth.ts',
               "  if (authMethod === AuthType.QWEN_OAUTH) {",
               "  if (authMethod === AuthType.QWEN_WEB) {\n    return null;\n  }\n\n  if (authMethod === AuthType.QWEN_OAUTH) {",
           )
 
-          # TypeScript SDK option schema parity.
+          # TypeScript SDK public and validation unions both accept qwen-web.
           replace_once(
               'packages/sdk-typescript/src/types/queryOptionsSchema.ts',
               "        'qwen-oauth',\n        'gemini',",
               "        'qwen-oauth',\n        'qwen-web',\n        'gemini',",
+          )
+          replace_once(
+              'packages/sdk-typescript/src/types/protocol.ts',
+              "  | 'qwen-oauth'\n  | 'gemini'",
+              "  | 'qwen-oauth'\n  | 'qwen-web'\n  | 'gemini'",
           )
 
           # Runtime dependency only: puppeteer-core does not download Chromium.
@@ -106,20 +114,14 @@ jobs:
       - name: Refresh npm lockfile
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install clean checkout dependencies
+        run: npm ci --no-audit --no-fund
 
-      - name: Typecheck core
-        run: npm run typecheck --workspace=@qwen-code/qwen-code-core
+      - name: Build repository
+        run: npm run build
 
-      - name: Build core declarations for downstream workspaces
-        run: npm run build --workspace=@qwen-code/qwen-code-core
-
-      - name: Typecheck CLI
-        run: npm run typecheck --workspace=@qwen-code/qwen-code
-
-      - name: Typecheck TypeScript SDK
-        run: npm run typecheck --workspace=@qwen-code/sdk
+      - name: Typecheck repository
+        run: npm run typecheck
 
       - name: Commit verified wiring and remove bootstrap workflow
         shell: bash
@@ -130,7 +132,9 @@ jobs:
                   packages/core/package.json \
                   packages/cli/src/config/top-level-options.ts \
                   packages/cli/src/config/auth.ts \
+                  packages/cli/src/utils/modelConfigUtils.ts \
                   packages/sdk-typescript/src/types/queryOptionsSchema.ts \
+                  packages/sdk-typescript/src/types/protocol.ts \
                   package-lock.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
