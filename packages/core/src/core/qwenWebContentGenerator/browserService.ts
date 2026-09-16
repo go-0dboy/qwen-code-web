@@ -81,23 +81,28 @@ export class QwenWebBrowserService {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.channelTails.clear();
     await this.controller.close();
   }
 
-  private async enqueue<T>(channel: string, operation: () => Promise<T>): Promise<T> {
+  private async enqueue<T>(
+    channel: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const previous = this.channelTails.get(channel) ?? Promise.resolve();
     let release!: () => void;
-    const tail = new Promise<void>((resolve) => {
+    const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    this.channelTails.set(channel, previous.catch(() => undefined).then(() => tail));
+    const queuedTail = previous.catch(() => undefined).then(() => gate);
+    this.channelTails.set(channel, queuedTail);
 
     await previous.catch(() => undefined);
     try {
       return await operation();
     } finally {
       release();
-      if (this.channelTails.get(channel) === tail) {
+      if (this.channelTails.get(channel) === queuedTail) {
         this.channelTails.delete(channel);
       }
     }
