@@ -57,6 +57,18 @@ jobs:
               "    } else if (authType === AuthType.QWEN_WEB) {\n      loadBaseGenerator = async () => {\n        const { createQwenWebContentGenerator } = await import(\n          './qwenWebContentGenerator/index.js'\n        );\n        return createQwenWebContentGenerator(generatorConfig, config);\n      };\n    } else if (authType === AuthType.QWEN_OAUTH) {",
           )
 
+          # Telemetry/logging accepts the browser auth type without pretending it is OpenAI.
+          replace_once(
+              'packages/core/src/telemetry/gen-ai-provider.ts',
+              "  | 'qwen-oauth'\n  | 'gemini'",
+              "  | 'qwen-oauth'\n  | 'qwen-web'\n  | 'gemini'",
+          )
+          replace_once(
+              'packages/core/src/telemetry/gen-ai-provider.ts',
+              "  if (config.authType === 'qwen-oauth') return 'dashscope';",
+              "  if (config.authType === 'qwen-oauth') return 'dashscope';\n  if (config.authType === 'qwen-web') return 'qwen';",
+          )
+
           # CLI bootstrap parser parity.
           replace_once(
               'packages/cli/src/config/top-level-options.ts',
@@ -111,6 +123,7 @@ jobs:
         run: |
           git rm .github/workflows/qwen-web-bootstrap.yml
           git add packages/core/src/core/contentGenerator.ts \
+                  packages/core/src/telemetry/gen-ai-provider.ts \
                   packages/core/package.json \
                   packages/cli/src/config/top-level-options.ts \
                   packages/cli/src/config/auth.ts \
