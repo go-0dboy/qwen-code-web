@@ -1,0 +1,122 @@
+name: Qwen Web provider bootstrap
+
+on:
+  push:
+    branches:
+      - feat/qwen-web-browser-provider
+    paths:
+      - .github/workflows/qwen-web-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/qwen-web-browser-provider
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply qwen-web provider wiring
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Core validation: qwen-web needs a model but never an API key.
+          replace_once(
+              'packages/core/src/core/contentGenerator.ts',
+              "  // API key is required for all other auth types\n  if (!config.apiKey && !usesVertexApplicationDefaultCredentials(config)) {",
+              "  // Browser-backed Qwen Web authenticates through its persistent browser\n  // profile and therefore must never require or resolve an API key.\n  if (\n    config.authType !== AuthType.QWEN_WEB &&\n    !config.apiKey &&\n    !usesVertexApplicationDefaultCredentials(config)\n  ) {",
+          )
+
+          # Keep qwen-web out of the undici preload path and wire the lazy generator.
+          replace_once(
+              'packages/core/src/core/contentGenerator.ts',
+              "  await preloadRuntimeFetchModule();",
+              "  if (authType !== AuthType.QWEN_WEB) {\n    await preloadRuntimeFetchModule();\n  }",
+          )
+          replace_once(
+              'packages/core/src/core/contentGenerator.ts',
+              "    } else if (authType === AuthType.QWEN_OAUTH) {",
+              "    } else if (authType === AuthType.QWEN_WEB) {\n      loadBaseGenerator = async () => {\n        const { createQwenWebContentGenerator } = await import(\n          './qwenWebContentGenerator/index.js'\n        );\n        return createQwenWebContentGenerator(generatorConfig, config);\n      };\n    } else if (authType === AuthType.QWEN_OAUTH) {",
+          )
+
+          # CLI bootstrap parser parity.
+          replace_once(
+              'packages/cli/src/config/top-level-options.ts',
+              "  'qwen-oauth',\n  'gemini',",
+              "  'qwen-oauth',\n  'qwen-web',\n  'gemini',",
+          )
+          replace_once(
+              'packages/cli/src/config/top-level-options.ts',
+              "  'qwen-oauth': true,\n  gemini: true,",
+              "  'qwen-oauth': true,\n  'qwen-web': true,\n  gemini: true,",
+          )
+
+          # CLI pre-flight auth: browser session, no API key prompt.
+          replace_once(
+              'packages/cli/src/config/auth.ts',
+              "  if (authMethod === AuthType.QWEN_OAUTH) {",
+              "  if (authMethod === AuthType.QWEN_WEB) {\n    return null;\n  }\n\n  if (authMethod === AuthType.QWEN_OAUTH) {",
+          )
+
+          # TypeScript SDK option schema parity.
+          replace_once(
+              'packages/sdk-typescript/src/types/queryOptionsSchema.ts',
+              "        'qwen-oauth',\n        'gemini',",
+              "        'qwen-oauth',\n        'qwen-web',\n        'gemini',",
+          )
+
+          # Runtime dependency only: puppeteer-core does not download Chromium.
+          replace_once(
+              'packages/core/package.json',
+              '    "prompts": "^2.4.2",\n    "proper-lockfile": "^4.1.2",',
+              '    "prompts": "^2.4.2",\n    "puppeteer-core": "^25.11.0",\n    "proper-lockfile": "^4.1.2",',
+          )
+          PY
+
+      - name: Refresh npm lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck core
+        run: npm run typecheck --workspace=@qwen-code/qwen-code-core
+
+      - name: Typecheck CLI
+        run: npm run typecheck --workspace=@qwen-code/qwen-code
+
+      - name: Typecheck TypeScript SDK
+        run: npm run typecheck --workspace=@qwen-code/sdk
+
+      - name: Commit verified wiring and remove bootstrap workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/qwen-web-bootstrap.yml
+          git add packages/core/src/core/contentGenerator.ts \
+                  packages/core/package.json \
+                  packages/cli/src/config/top-level-options.ts \
+                  packages/cli/src/config/auth.ts \
+                  packages/sdk-typescript/src/types/queryOptionsSchema.ts \
+                  package-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(qwen-web): wire browser provider through core CLI and SDK"
+          git push origin HEAD:feat/qwen-web-browser-provider
