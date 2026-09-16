@@ -112,6 +112,9 @@ jobs:
       - name: Typecheck core
         run: npm run typecheck --workspace=@qwen-code/qwen-code-core
 
+      - name: Build core declarations for downstream workspaces
+        run: npm run build --workspace=@qwen-code/qwen-code-core
+
       - name: Typecheck CLI
         run: npm run typecheck --workspace=@qwen-code/qwen-code
 
