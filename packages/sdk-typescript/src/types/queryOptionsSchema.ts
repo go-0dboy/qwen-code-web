@@ -227,6 +227,7 @@ export const QueryOptionsSchema = z
         'openai-responses',
         'anthropic',
         'qwen-oauth',
+        'qwen-web',
         'gemini',
         'vertex-ai',
       ])

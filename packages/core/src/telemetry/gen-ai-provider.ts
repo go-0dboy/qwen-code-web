@@ -10,6 +10,7 @@ export type GenAiAuthType =
   | 'openai'
   | 'openai-responses'
   | 'qwen-oauth'
+  | 'qwen-web'
   | 'gemini'
   | 'vertex-ai'
   | 'anthropic';
@@ -113,6 +114,7 @@ export function resolveGenAiProviderName(
   dashscopeProxyBaseUrl?: string,
 ): string {
   if (config.authType === 'qwen-oauth') return 'dashscope';
+  if (config.authType === 'qwen-web') return 'qwen';
 
   const baseUrl = normalizedEndpoint(config.baseUrl);
   const proxyUrl = normalizedEndpoint(dashscopeProxyBaseUrl);

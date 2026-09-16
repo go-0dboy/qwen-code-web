@@ -358,8 +358,13 @@ export function validateModelConfig(
     return { valid: true, errors: [] };
   }
 
-  // API key is required for all other auth types
-  if (!config.apiKey && !usesVertexApplicationDefaultCredentials(config)) {
+  // Browser-backed Qwen Web authenticates through its persistent browser
+  // profile and therefore must never require or resolve an API key.
+  if (
+    config.authType !== AuthType.QWEN_WEB &&
+    !config.apiKey &&
+    !usesVertexApplicationDefaultCredentials(config)
+  ) {
     if (isStrictModelProvider) {
       errors.push(
         new StrictMissingCredentialsError(
@@ -545,7 +550,9 @@ export async function createContentGenerator(
   // Provider constructors below synchronously build undici-backed fetch
   // options; load undici here so it stays out of the eager startup closure
   // (issue #7264).
-  await preloadRuntimeFetchModule();
+  if (authType !== AuthType.QWEN_WEB) {
+    await preloadRuntimeFetchModule();
+  }
 
   let loadBaseGenerator: () => Promise<ContentGenerator>;
 
@@ -563,6 +570,13 @@ export async function createContentGenerator(
           './openaiResponsesContentGenerator/index.js'
         );
         return createOpenAIResponsesContentGenerator(generatorConfig, config);
+      };
+    } else if (authType === AuthType.QWEN_WEB) {
+      loadBaseGenerator = async () => {
+        const { createQwenWebContentGenerator } = await import(
+          './qwenWebContentGenerator/index.js'
+        );
+        return createQwenWebContentGenerator(generatorConfig, config);
       };
     } else if (authType === AuthType.QWEN_OAUTH) {
       const { getQwenOAuthClient: getQwenOauthClient } = await import(
