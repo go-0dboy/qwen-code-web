@@ -226,7 +226,9 @@ describe('Qwen Web host-tool integration', () => {
     expect(third.calls).toHaveLength(0);
     expect(third.texts.join('')).toContain('a.ts imports b.ts');
     expect(browser.prompts).toHaveLength(3);
-    expect(browser.prompts[1]).toContain("import { b } from './b.js';");
+    expect(browser.prompts[1]).toContain(
+      'import { b } from &apos;./b.js&apos;;',
+    );
     expect(browser.prompts[2]).toContain('export const b = 1;');
   });
 });
