@@ -63,6 +63,7 @@ const createMockUIActions = (overrides: UIActionsOverrides = {}): UIActions => {
   const authActions = {
     closeAuthDialog: vi.fn(),
     handleProviderSubmit: vi.fn(),
+    handleQwenWebSubmit: vi.fn(),
     setAuthState: vi.fn(),
     onAuthError: vi.fn(),
     openAuthDialog: vi.fn(),

@@ -22,6 +22,7 @@ import { useQwenAuth } from '../hooks/useQwenAuth.js';
 import { AuthState, MessageType } from '../types.js';
 import type { HistoryItemWithoutId } from '../types.js';
 import { t } from '../../i18n/index.js';
+import { applyQwenWebAuth } from './qwenWebAuth.js';
 
 /**
  * Normalize model IDs: split by comma, trim, deduplicate, remove empty.
@@ -73,6 +74,8 @@ export type AuthController = {
       providerConfig: ProviderConfig,
       inputs: ProviderSetupInputs,
     ) => Promise<void>;
+    /** Select the browser-backed provider without API credentials. */
+    handleQwenWebSubmit: () => Promise<void>;
     openAuthDialog: () => void;
     cancelAuthentication: () => void;
   };
@@ -238,6 +241,36 @@ export const useAuthCommand = (
     ],
   );
 
+  const handleQwenWebSubmit = useCallback(async () => {
+    const protocol = AuthType.QWEN_WEB;
+    try {
+      setPendingAuthType(protocol);
+      setIsAuthenticating(true);
+      setAuthError(null);
+      await applyQwenWebAuth(settings, config);
+      completeAuthentication();
+
+      const feedbackItem: HistoryItemWithoutId & Record<string, unknown> = {
+        type: MessageType.INFO,
+        text: t(
+          'Successfully configured Qwen Web. The browser will open only when a model request needs it.',
+        ),
+      };
+      addItem(feedbackItem, Date.now());
+      if (openedViaCommandRef.current) {
+        openedViaCommandRef.current = false;
+        config.getChatRecordingService?.()?.recordSlashCommand({
+          phase: 'result',
+          rawCommand: '/auth',
+          outputHistoryItems: [feedbackItem],
+        });
+      }
+      logAuth(config, new AuthEvent(protocol, 'manual', 'success'));
+    } catch (error) {
+      handleAuthFailure(error, protocol);
+    }
+  }, [settings, config, completeAuthentication, addItem, handleAuthFailure]);
+
   // -- Dialog open / close / cancel ----------------------------------------
 
   const openAuthDialog = useCallback(() => {
@@ -270,6 +303,7 @@ export const useAuthCommand = (
     const val = process.env['QWEN_DEFAULT_AUTH_TYPE'];
     const valid = [
       AuthType.QWEN_OAUTH,
+      AuthType.QWEN_WEB,
       AuthType.USE_OPENAI,
       AuthType.USE_OPENAI_RESPONSES,
       AuthType.USE_ANTHROPIC,
@@ -313,6 +347,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleQwenWebSubmit,
       openAuthDialog,
       cancelAuthentication,
     }),
@@ -321,6 +356,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleQwenWebSubmit,
       openAuthDialog,
       cancelAuthentication,
     ],
@@ -338,6 +374,7 @@ export const useAuthCommand = (
     qwenAuthState,
     closeAuthDialog,
     handleProviderSubmit,
+    handleQwenWebSubmit,
     openAuthDialog,
     cancelAuthentication,
     state,

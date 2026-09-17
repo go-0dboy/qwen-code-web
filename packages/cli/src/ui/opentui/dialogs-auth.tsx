@@ -55,6 +55,11 @@ import {
   type SetupStep,
 } from '../auth/useProviderSetupFlow.js';
 import { normalizeModelIds } from '../auth/useAuth.js';
+import {
+  QWEN_WEB_AUTH_DESCRIPTION,
+  QWEN_WEB_AUTH_LABEL,
+  applyQwenWebAuth,
+} from '../auth/qwenWebAuth.js';
 import { toOriginalKey } from './key-map.js';
 import { isPrintableKeyInput } from './input-prompt-key.js';
 import { normalizePastedText } from './input-prompt-model.js';
@@ -74,6 +79,7 @@ type ViewLevel =
   | 'provider-setup';
 
 type MainOption =
+  | 'QWEN_WEB'
   | 'ALIBABA_MODELSTUDIO'
   | 'THIRD_PARTY_PROVIDERS'
   | 'CUSTOM_PROVIDER';
@@ -86,6 +92,12 @@ interface RadioItem {
 }
 
 const MAIN_ITEMS: RadioItem[] = [
+  {
+    key: 'QWEN_WEB',
+    label: t(QWEN_WEB_AUTH_LABEL),
+    description: t(QWEN_WEB_AUTH_DESCRIPTION),
+    value: 'QWEN_WEB',
+  },
   {
     key: 'ALIBABA_MODELSTUDIO',
     label: t('Alibaba ModelStudio'),
@@ -1058,17 +1070,44 @@ function AuthDialogFlow({
   );
   // Land on the tab matching the active provider's uiGroup (ink parity).
   const defaultMainIndex = useMemo(() => {
-    if (matchedProvider?.uiGroup === 'third-party') return 1;
-    if (matchedProvider?.uiGroup === 'custom') return 2;
-    return 0;
-  }, [matchedProvider]);
+    if (config.getAuthType() === AuthType.QWEN_WEB) return 0;
+    if (matchedProvider?.uiGroup === 'third-party') return 2;
+    if (matchedProvider?.uiGroup === 'custom') return 3;
+    return 1;
+  }, [config, matchedProvider]);
 
   // -- Main menu select -------------------------------------------------------
+
+  const handleQwenWebSubmit = useCallback(async () => {
+    clearErrors();
+    try {
+      await applyQwenWebAuth(settings, config);
+      notify?.(
+        t(
+          'Successfully configured Qwen Web. The browser will open only when a model request needs it.',
+        ),
+      );
+      logAuth(config, new AuthEvent(AuthType.QWEN_WEB, 'manual', 'success'));
+      onClose();
+    } catch (error) {
+      const msg = t('Failed to authenticate. Message: {{message}}', {
+        message: getErrorMessage(error),
+      });
+      setErrorMessage(msg);
+      logAuth(
+        config,
+        new AuthEvent(AuthType.QWEN_WEB, 'manual', 'error', msg),
+      );
+    }
+  }, [clearErrors, settings, config, notify, onClose]);
 
   const handleMainSelect = useCallback(
     (value: MainOption) => {
       clearErrors();
       switch (value) {
+        case 'QWEN_WEB':
+          void handleQwenWebSubmit();
+          break;
         case 'ALIBABA_MODELSTUDIO':
           pushView('alibaba-select');
           break;
@@ -1089,7 +1128,7 @@ function AuthDialogFlow({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clearErrors, pushView, setupFlow, settings],
+    [clearErrors, pushView, setupFlow, settings, handleQwenWebSubmit],
   );
 
   // -- Keyboard: main / sub-menu lists --------------------------------------

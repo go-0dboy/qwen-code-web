@@ -41,6 +41,8 @@ function getAuthDisplayType(
   switch (authType) {
     case AuthType.QWEN_OAUTH:
       return AuthDisplayType.QWEN_OAUTH;
+    case AuthType.QWEN_WEB:
+      return 'Qwen Web';
     default:
       return AuthDisplayType.API_KEY;
   }

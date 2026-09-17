@@ -40,6 +40,7 @@ export {
   PROVIDER_SOURCED_FIELDS,
   QWEN_OAUTH_ALLOWED_MODELS,
   QWEN_OAUTH_MODELS,
+  QWEN_WEB_DEFAULT_MODEL,
 } from './constants.js';
 
 // Model configuration resolver

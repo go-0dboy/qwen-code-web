@@ -27,9 +27,14 @@ import {
   findExistingProviderModels,
   getDefaultModelIds,
 } from '@qwen-code/qwen-code-core/providers/provider-config.js';
+import { AuthType } from '@qwen-code/qwen-code-core';
 import type { ProviderConfig } from '@qwen-code/qwen-code-core/providers/types.js';
 import { useProviderSetupFlow } from './useProviderSetupFlow.js';
 import { ProviderSetupSteps } from './ProviderSetupSteps.js';
+import {
+  QWEN_WEB_AUTH_DESCRIPTION,
+  QWEN_WEB_AUTH_LABEL,
+} from './qwenWebAuth.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +47,7 @@ type ViewLevel =
   | 'provider-setup';
 
 type MainOption =
+  | 'QWEN_WEB'
   | 'ALIBABA_MODELSTUDIO'
   | 'THIRD_PARTY_PROVIDERS'
   | 'CUSTOM_PROVIDER';
@@ -51,6 +57,13 @@ type MainOption =
 // ---------------------------------------------------------------------------
 
 const MAIN_ITEMS = [
+  {
+    key: 'QWEN_WEB',
+    title: t(QWEN_WEB_AUTH_LABEL),
+    label: t(QWEN_WEB_AUTH_LABEL),
+    description: t(QWEN_WEB_AUTH_DESCRIPTION),
+    value: 'QWEN_WEB' as MainOption,
+  },
   {
     key: 'ALIBABA_MODELSTUDIO',
     title: t('Alibaba ModelStudio'),
@@ -124,7 +137,12 @@ export function AuthDialog(): React.JSX.Element {
     auth: { authError },
   } = useUIState();
   const {
-    auth: { closeAuthDialog, handleProviderSubmit, onAuthError },
+    auth: {
+      closeAuthDialog,
+      handleProviderSubmit,
+      handleQwenWebSubmit,
+      onAuthError,
+    },
   } = useUIActions();
   const config = useConfig();
   const settings = useSettings();
@@ -230,16 +248,20 @@ export function AuthDialog(): React.JSX.Element {
   // (resolveMetadataKey returns config.id for *any* provider with a static
   // models[], so it can't be used to detect "Alibaba" specifically.)
   const defaultMainIndex = useMemo(() => {
-    if (matchedProvider?.uiGroup === 'third-party') return 1;
-    if (matchedProvider?.uiGroup === 'custom') return 2;
-    return 0;
-  }, [matchedProvider]);
+    if (config.getAuthType() === AuthType.QWEN_WEB) return 0;
+    if (matchedProvider?.uiGroup === 'third-party') return 2;
+    if (matchedProvider?.uiGroup === 'custom') return 3;
+    return 1;
+  }, [config, matchedProvider]);
 
   // -- Handlers -------------------------------------------------------------
 
   const handleMainSelect = (value: MainOption) => {
     clearErrors();
     switch (value) {
+      case 'QWEN_WEB':
+        void handleQwenWebSubmit();
+        break;
       case 'ALIBABA_MODELSTUDIO':
         pushView('alibaba-select');
         break;

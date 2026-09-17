@@ -44,6 +44,7 @@ export {
   MODEL_GENERATION_CONFIG_FIELDS,
   type OnModelChangeCallback,
   QWEN_OAUTH_MODELS,
+  QWEN_WEB_DEFAULT_MODEL,
   resolveModelConfig,
   type ResolvedModelConfig,
   validateModelConfig,
