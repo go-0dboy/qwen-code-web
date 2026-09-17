@@ -57,6 +57,7 @@ describeWithBrowser('Qwen Web page runtime DOM adapter', () => {
     await page.evaluate(installQwenWebPageRuntime, {
       loginStabilityMs: 0,
       loginDetectionTimeoutMs: 50,
+      stopAppearanceTimeoutMs: 500,
     });
     return page;
   }
@@ -123,6 +124,35 @@ describeWithBrowser('Qwen Web page runtime DOM adapter', () => {
       return (await bridge.getStatus()).loggedIn;
     });
     expect(loggedIn).toBe(false);
+    await page.close();
+  });
+
+  it('waits for a late Stop control before cancellation returns', async () => {
+    const page = await runtimePage(`
+      <textarea style="width:200px;height:40px"></textarea>
+    `);
+
+    const result = await page.evaluate(async () => {
+      const bridge = (window as BrowserWindow).__qwenCodeWebBridge!;
+      window.setTimeout(() => {
+        const stop = document.createElement('button');
+        stop.className = 'stop-button';
+        stop.style.width = '100px';
+        stop.style.height = '30px';
+        stop.textContent = 'Stop';
+        stop.addEventListener('click', () => stop.remove());
+        document.body.appendChild(stop);
+      }, 100);
+      const started = Date.now();
+      await bridge.stopGeneration();
+      return {
+        elapsedMs: Date.now() - started,
+        stopStillPresent: Boolean(document.querySelector('.stop-button')),
+      };
+    });
+
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(75);
+    expect(result.stopStillPresent).toBe(false);
     await page.close();
   });
 

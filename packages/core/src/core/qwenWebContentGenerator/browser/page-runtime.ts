@@ -13,6 +13,7 @@ import type {
 export interface QwenWebPageRuntimeOptions {
   loginStabilityMs?: number;
   loginDetectionTimeoutMs?: number;
+  stopAppearanceTimeoutMs?: number;
 }
 
 /**
@@ -31,6 +32,10 @@ export function installQwenWebPageRuntime(
   const loginDetectionTimeoutMs = Math.max(
     loginStabilityMs,
     options.loginDetectionTimeoutMs ?? 8_000,
+  );
+  const stopAppearanceTimeoutMs = Math.max(
+    0,
+    options.stopAppearanceTimeoutMs ?? 3_500,
   );
   let inferredAuthenticated = false;
 
@@ -560,8 +565,14 @@ export function installQwenWebPageRuntime(
     });
 
   const stopGeneration = async (): Promise<void> => {
-    const stop = activeStopButton();
+    const appearanceDeadline = Date.now() + stopAppearanceTimeoutMs;
+    let stop = activeStopButton();
+    while (!stop && Date.now() < appearanceDeadline) {
+      await sleep(50);
+      stop = activeStopButton();
+    }
     if (stop) stop.click();
+
     const deadline = Date.now() + 10_000;
     while (activeStopButton()) {
       if (Date.now() > deadline) {

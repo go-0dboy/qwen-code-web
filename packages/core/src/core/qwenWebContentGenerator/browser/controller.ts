@@ -329,10 +329,11 @@ export class PuppeteerBrowserController {
 
       await this.closeBrowserOnly();
       await this.launch(true);
+      process.stderr.write(
+        '\nLogin successful.\nBrowser returned to background mode.\n',
+      );
     } catch (error) {
-      if (signal.aborted) {
-        await this.closeBrowserOnly();
-      }
+      await this.closeBrowserOnly();
       throw error;
     }
   }
@@ -372,13 +373,18 @@ export class PuppeteerBrowserController {
     const browser = this.browser;
     if (!browser) throw new Error('Qwen Web browser is not running.');
     const page = await browser.newPage();
-    await page.evaluateOnNewDocument(installQwenWebPageRuntime);
-    await page.goto(QWEN_WEB_URL, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60_000,
-    });
-    await page.evaluate(installQwenWebPageRuntime);
-    return page;
+    try {
+      await page.evaluateOnNewDocument(installQwenWebPageRuntime);
+      await page.goto(QWEN_WEB_URL, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+      await page.evaluate(installQwenWebPageRuntime);
+      return page;
+    } catch (error) {
+      if (!page.isClosed()) await page.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   private async createChannelPage(
@@ -386,15 +392,20 @@ export class PuppeteerBrowserController {
     signal?: AbortSignal,
   ): Promise<ChannelPage> {
     const page = await this.createPage(signal);
-    const status = await this.status(page);
-    if (!status.loggedIn) {
-      await page.close().catch(() => undefined);
-      await this.reauthenticate(signal);
-      return this.createChannelPage(model, signal);
+    try {
+      const status = await this.status(page);
+      if (!status.loggedIn) {
+        await page.close().catch(() => undefined);
+        await this.reauthenticate(signal);
+        return this.createChannelPage(model, signal);
+      }
+      await this.selectModel(page, model);
+      this.pageEpoch += 1;
+      return { page, pageEpoch: this.pageEpoch, model };
+    } catch (error) {
+      if (!page.isClosed()) await page.close().catch(() => undefined);
+      throw error;
     }
-    await this.selectModel(page, model);
-    this.pageEpoch += 1;
-    return { page, pageEpoch: this.pageEpoch, model };
   }
 
   private async status(page: Page): Promise<QwenWebRuntimeStatus> {
