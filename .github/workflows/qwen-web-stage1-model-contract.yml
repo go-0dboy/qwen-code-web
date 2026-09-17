@@ -27,14 +27,21 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label} anchor not found')
+              return text.replace(old, new, 1)
+
           constants = Path('packages/core/src/models/constants.ts')
           text = constants.read_text()
-          old = """/**
+          text = replace_once(
+              text,
+              """/**
            * Hard-coded Qwen OAuth models that are always available.
            * These cannot be overridden by user configuration.
            */
-          export const QWEN_OAUTH_MODELS: ModelConfig[] = ["""
-          new = """/**
+          export const QWEN_OAUTH_MODELS: ModelConfig[] = [""",
+              """/**
            * Hard-coded Qwen Web models. The browser transport is deliberately
            * text-only in v1, even when a similarly named API model supports
            * richer modalities.
@@ -45,9 +52,7 @@ jobs:
               name: QWEN_WEB_DEFAULT_MODEL,
               description: 'Qwen 3.8 Max via Qwen Web browser session',
               capabilities: {},
-              generationConfig: {
-                modalities: {},
-              },
+              generationConfig: { modalities: {} },
             },
           ];
 
@@ -55,103 +60,43 @@ jobs:
            * Hard-coded Qwen OAuth models that are always available.
            * These cannot be overridden by user configuration.
            */
-          export const QWEN_OAUTH_MODELS: ModelConfig[] = ["""
-          if old not in text:
-              raise SystemExit('constants anchor not found')
-          constants.write_text(text.replace(old, new, 1))
+          export const QWEN_OAUTH_MODELS: ModelConfig[] = [""",
+              'constants',
+          )
+          constants.write_text(text)
 
           registry = Path('packages/core/src/models/modelRegistry.ts')
           text = registry.read_text()
-          replacements = [
-              (
-                  "import { QWEN_OAUTH_MODELS } from './constants.js';",
-                  "import {\n  QWEN_OAUTH_MODELS,\n  QWEN_WEB_DEFAULT_MODEL,\n  QWEN_WEB_MODELS,\n} from './constants.js';",
-              ),
-              (
-                  "export { QWEN_OAUTH_MODELS } from './constants.js';",
-                  "export { QWEN_OAUTH_MODELS, QWEN_WEB_MODELS } from './constants.js';",
-              ),
-              (
-                  "    // Always register qwen-oauth models (hard-coded, cannot be overridden)\n    this.registerAuthTypeModels(AuthType.QWEN_OAUTH, QWEN_OAUTH_MODELS);",
-                  "    // Built-in Qwen models are hard-coded and cannot be overridden.\n    this.registerAuthTypeModels(AuthType.QWEN_OAUTH, QWEN_OAUTH_MODELS);\n    this.registerAuthTypeModels(AuthType.QWEN_WEB, QWEN_WEB_MODELS);",
-              ),
-              (
-                  "      // qwen-oauth uses hard-coded models and cannot be overridden\n      if (protocol === AuthType.QWEN_OAUTH) {",
-                  "      // Built-in Qwen providers use hard-coded models and cannot be overridden.\n      if (\n        protocol === AuthType.QWEN_OAUTH ||\n        protocol === AuthType.QWEN_WEB\n      ) {",
-              ),
-              (
-                  "    if (authType === AuthType.QWEN_OAUTH) {\n      return this.getModel(authType, DEFAULT_QWEN_MODEL);\n    }",
-                  "    if (authType === AuthType.QWEN_OAUTH) {\n      return this.getModel(authType, DEFAULT_QWEN_MODEL);\n    }\n    if (authType === AuthType.QWEN_WEB) {\n      return this.getModel(authType, QWEN_WEB_DEFAULT_MODEL);\n    }",
-              ),
-              (
-                  "   * Preserves hard-coded qwen-oauth models.",
-                  "   * Preserves hard-coded Qwen OAuth and Qwen Web models.",
-              ),
-          ]
-          for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f'registry anchor not found: {old[:60]!r}')
-              text = text.replace(old, new, 1)
+          for old, new, label in [
+              ("import { QWEN_OAUTH_MODELS } from './constants.js';", "import {\n  QWEN_OAUTH_MODELS,\n  QWEN_WEB_DEFAULT_MODEL,\n  QWEN_WEB_MODELS,\n} from './constants.js';", 'registry import'),
+              ("export { QWEN_OAUTH_MODELS } from './constants.js';", "export { QWEN_OAUTH_MODELS, QWEN_WEB_MODELS } from './constants.js';", 'registry export'),
+              ("    // Always register qwen-oauth models (hard-coded, cannot be overridden)\n    this.registerAuthTypeModels(AuthType.QWEN_OAUTH, QWEN_OAUTH_MODELS);", "    // Built-in Qwen models are hard-coded and cannot be overridden.\n    this.registerAuthTypeModels(AuthType.QWEN_OAUTH, QWEN_OAUTH_MODELS);\n    this.registerAuthTypeModels(AuthType.QWEN_WEB, QWEN_WEB_MODELS);", 'registry built-ins'),
+              ("      // qwen-oauth uses hard-coded models and cannot be overridden\n      if (protocol === AuthType.QWEN_OAUTH) {", "      // Built-in Qwen providers use hard-coded models and cannot be overridden.\n      if (\n        protocol === AuthType.QWEN_OAUTH ||\n        protocol === AuthType.QWEN_WEB\n      ) {", 'registry override guard'),
+              ("    if (authType === AuthType.QWEN_OAUTH) {\n      return this.getModel(authType, DEFAULT_QWEN_MODEL);\n    }", "    if (authType === AuthType.QWEN_OAUTH) {\n      return this.getModel(authType, DEFAULT_QWEN_MODEL);\n    }\n    if (authType === AuthType.QWEN_WEB) {\n      return this.getModel(authType, QWEN_WEB_DEFAULT_MODEL);\n    }", 'registry default'),
+              ("   * Preserves hard-coded qwen-oauth models.", "   * Preserves hard-coded Qwen OAuth and Qwen Web models.", 'registry reload comment'),
+          ]:
+              text = replace_once(text, old, new, label)
           registry.write_text(text)
 
           resolver = Path('packages/core/src/models/modelConfigResolver.ts')
           text = resolver.read_text()
-          old = "  // Get auth-specific env var mappings.\n"
-          if old not in text:
-              raise SystemExit('resolver auth mapping anchor not found')
-          text = text.replace(old, "  const isQwenWeb = authType === AuthType.QWEN_WEB;\n\n" + old, 1)
+          text = replace_once(text, "  // Get auth-specific env var mappings.\n", "  const isQwenWeb = authType === AuthType.QWEN_WEB;\n\n  // Get auth-specific env var mappings.\n", 'resolver qwen-web flag')
+          for old, new, label in [
+              ("  if (authType && modelProvider?.envKey) {", "  if (!isQwenWeb && authType && modelProvider?.envKey) {", 'resolver provider key'),
+              ("  if (cli?.apiKey) {", "  if (!isQwenWeb && cli?.apiKey) {", 'resolver cli key'),
+              ("  for (const envKey of envMapping.apiKey) {\n    apiKeyLayers.push(envLayer(env, envKey));\n  }\n  if (settings?.apiKey) {", "  if (!isQwenWeb) {\n    for (const envKey of envMapping.apiKey) {\n      apiKeyLayers.push(envLayer(env, envKey));\n    }\n  }\n  if (!isQwenWeb && settings?.apiKey) {", 'resolver env/settings key'),
+              ("  if (authType && modelProvider?.baseUrl) {", "  if (!isQwenWeb && authType && modelProvider?.baseUrl) {", 'resolver provider base url'),
+              ("  if (cli?.baseUrl) {", "  if (!isQwenWeb && cli?.baseUrl) {", 'resolver cli base url'),
+              ("  for (const envKey of envMapping.baseUrl) {\n    baseUrlLayers.push(envLayer(env, envKey));\n  }\n  if (settings?.baseUrl) {", "  if (!isQwenWeb) {\n    for (const envKey of envMapping.baseUrl) {\n      baseUrlLayers.push(envLayer(env, envKey));\n    }\n  }\n  if (!isQwenWeb && settings?.baseUrl) {", 'resolver env/settings base url'),
+              ("  if (authType && modelProvider?.envKey) {\n    apiKeyEnvKey = modelProvider.envKey;", "  if (!isQwenWeb && authType && modelProvider?.envKey) {\n    apiKeyEnvKey = modelProvider.envKey;", 'resolver env key metadata'),
+          ]:
+              text = replace_once(text, old, new, label)
 
-          replacements = [
-              (
-                  "  if (authType && modelProvider?.envKey) {",
-                  "  if (!isQwenWeb && authType && modelProvider?.envKey) {",
-              ),
-              (
-                  "  if (cli?.apiKey) {",
-                  "  if (!isQwenWeb && cli?.apiKey) {",
-              ),
-              (
-                  "  for (const envKey of envMapping.apiKey) {\n    apiKeyLayers.push(envLayer(env, envKey));\n  }\n  if (settings?.apiKey) {",
-                  "  if (!isQwenWeb) {\n    for (const envKey of envMapping.apiKey) {\n      apiKeyLayers.push(envLayer(env, envKey));\n    }\n  }\n  if (!isQwenWeb && settings?.apiKey) {",
-              ),
-              (
-                  "  if (authType && modelProvider?.baseUrl) {",
-                  "  if (!isQwenWeb && authType && modelProvider?.baseUrl) {",
-              ),
-              (
-                  "  if (cli?.baseUrl) {",
-                  "  if (!isQwenWeb && cli?.baseUrl) {",
-              ),
-              (
-                  "  for (const envKey of envMapping.baseUrl) {\n    baseUrlLayers.push(envLayer(env, envKey));\n  }\n  if (settings?.baseUrl) {",
-                  "  if (!isQwenWeb) {\n    for (const envKey of envMapping.baseUrl) {\n      baseUrlLayers.push(envLayer(env, envKey));\n    }\n  }\n  if (!isQwenWeb && settings?.baseUrl) {",
-              ),
-          ]
-          for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f'resolver anchor not found: {old[:60]!r}')
-              text = text.replace(old, new, 1)
-
-          old = "  if (authType && modelProvider?.envKey) {\n    apiKeyEnvKey = modelProvider.envKey;"
-          if old not in text:
-              raise SystemExit('resolver apiKeyEnvKey anchor not found')
-          text = text.replace(
-              old,
-              "  if (!isQwenWeb && authType && modelProvider?.envKey) {\n    apiKeyEnvKey = modelProvider.envKey;",
-              1,
-          )
-
-          old = """  if (result.modalities === undefined && modelId) {
-            result.modalities = defaultModalities(modelId);
-            sources['modalities'] = computedSource('auto-detected from model');
-          }
-
-          return result;
-          """
-          new = """  if (result.modalities === undefined && modelId) {
-            result.modalities = defaultModalities(modelId);
-            sources['modalities'] = computedSource('auto-detected from model');
-          }
+          marker = "\n  return result;\n}"
+          pos = text.rfind(marker)
+          if pos < 0:
+              raise SystemExit('resolver return anchor not found')
+          qwen_web_modalities = """
 
           // Qwen Web v1 transports text through the browser DOM only. Override
           // generic model-name detection and any settings/provider declaration so
@@ -162,12 +107,9 @@ jobs:
               'qwen-web browser transport is text-only',
             );
           }
-
-          return result;
           """
-          if old not in text:
-              raise SystemExit('resolver modalities anchor not found')
-          resolver.write_text(text.replace(old, new, 1))
+          text = text[:pos] + qwen_web_modalities + text[pos:]
+          resolver.write_text(text)
 
           Path('packages/core/src/models/qwenWebModelContract.test.ts').write_text(r'''/**
            * @license
@@ -177,63 +119,36 @@ jobs:
 
           import { describe, expect, it } from 'vitest';
           import { AuthType } from '../core/contentGenerator.js';
-          import {
-            QWEN_WEB_DEFAULT_MODEL,
-            QWEN_WEB_MODELS,
-          } from './constants.js';
+          import { QWEN_WEB_DEFAULT_MODEL, QWEN_WEB_MODELS } from './constants.js';
           import { ModelRegistry } from './modelRegistry.js';
-          import {
-            resolveModelConfig,
-            validateModelConfig,
-          } from './modelConfigResolver.js';
+          import { resolveModelConfig, validateModelConfig } from './modelConfigResolver.js';
 
           describe('Qwen Web model contract', () => {
             it('registers qwen3.8-max as the built-in text-only model', () => {
               const registry = new ModelRegistry();
               const models = registry.getModelsForAuthType(AuthType.QWEN_WEB);
-
               expect(models).toHaveLength(QWEN_WEB_MODELS.length);
               expect(models[0]?.id).toBe(QWEN_WEB_DEFAULT_MODEL);
               expect(models[0]?.modalities).toEqual({});
               expect(models[0]?.isVision).toBe(false);
-              expect(
-                registry.getDefaultModelForAuthType(AuthType.QWEN_WEB)?.id,
-              ).toBe(QWEN_WEB_DEFAULT_MODEL);
+              expect(registry.getDefaultModelForAuthType(AuthType.QWEN_WEB)?.id).toBe(QWEN_WEB_DEFAULT_MODEL);
             });
 
             it('does not let modelProviders override the built-in Qwen Web model set', () => {
               const registry = new ModelRegistry({
-                'qwen-web': [
-                  {
-                    id: 'not-supported',
-                    generationConfig: { modalities: { image: true } },
-                  },
-                ],
+                'qwen-web': [{ id: 'not-supported', generationConfig: { modalities: { image: true } } }],
               });
-
-              expect(
-                registry.getModel(AuthType.QWEN_WEB, 'not-supported'),
-              ).toBeUndefined();
-              expect(
-                registry.getModel(AuthType.QWEN_WEB, QWEN_WEB_DEFAULT_MODEL)
-                  ?.generationConfig.modalities,
-              ).toEqual({});
+              expect(registry.getModel(AuthType.QWEN_WEB, 'not-supported')).toBeUndefined();
+              expect(registry.getModel(AuthType.QWEN_WEB, QWEN_WEB_DEFAULT_MODEL)?.generationConfig.modalities).toEqual({});
             });
 
             it('resolves the default without API credentials or a base URL', () => {
               const result = resolveModelConfig({
                 authType: AuthType.QWEN_WEB,
-                cli: {
-                  apiKey: 'must-be-ignored',
-                  baseUrl: 'https://must-be-ignored.invalid',
-                },
-                settings: {
-                  apiKey: 'also-ignored',
-                  baseUrl: 'https://also-ignored.invalid',
-                },
+                cli: { apiKey: 'must-be-ignored', baseUrl: 'https://must-be-ignored.invalid' },
+                settings: { apiKey: 'also-ignored', baseUrl: 'https://also-ignored.invalid' },
                 env: {},
               });
-
               expect(result.config.model).toBe(QWEN_WEB_DEFAULT_MODEL);
               expect(result.config.apiKey).toBeUndefined();
               expect(result.config.apiKeyEnvKey).toBeUndefined();
@@ -244,12 +159,9 @@ jobs:
             it('forces text-only modalities even when settings request images', () => {
               const result = resolveModelConfig({
                 authType: AuthType.QWEN_WEB,
-                settings: {
-                  generationConfig: { modalities: { image: true } },
-                },
+                settings: { generationConfig: { modalities: { image: true } } },
                 env: {},
               });
-
               expect(result.config.modalities).toEqual({});
               expect(result.sources['modalities']?.kind).toBe('computed');
             });
@@ -265,7 +177,6 @@ jobs:
                   generationConfig: { modalities: { image: true } },
                 },
               });
-
               expect(result.config.apiKey).toBeUndefined();
               expect(result.config.apiKeyEnvKey).toBeUndefined();
               expect(result.config.baseUrl).toBeUndefined();
@@ -273,34 +184,15 @@ jobs:
             });
 
             it('preserves an explicit model request instead of silently falling back', () => {
-              const result = resolveModelConfig({
-                authType: AuthType.QWEN_WEB,
-                cli: { model: 'explicit-future-model' },
-                settings: {},
-                env: {},
-              });
-
+              const result = resolveModelConfig({ authType: AuthType.QWEN_WEB, cli: { model: 'explicit-future-model' }, settings: {}, env: {} });
               expect(result.config.model).toBe('explicit-future-model');
             });
 
             it('validates qwen-web without an API key but still requires a model', () => {
-              expect(
-                validateModelConfig({
-                  authType: AuthType.QWEN_WEB,
-                  model: QWEN_WEB_DEFAULT_MODEL,
-                }).valid,
-              ).toBe(true);
-
-              const missingModel = validateModelConfig({
-                authType: AuthType.QWEN_WEB,
-                model: '',
-              });
+              expect(validateModelConfig({ authType: AuthType.QWEN_WEB, model: QWEN_WEB_DEFAULT_MODEL }).valid).toBe(true);
+              const missingModel = validateModelConfig({ authType: AuthType.QWEN_WEB, model: '' });
               expect(missingModel.valid).toBe(false);
-              expect(
-                missingModel.errors.some((error) =>
-                  error.message.toLowerCase().includes('model'),
-                ),
-              ).toBe(true);
+              expect(missingModel.errors.some((error) => error.message.toLowerCase().includes('model'))).toBe(true);
             });
           });
           ''')
