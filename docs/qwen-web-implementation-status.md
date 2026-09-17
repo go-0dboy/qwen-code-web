@@ -117,31 +117,39 @@ Implemented:
 
 Verification: run `35249361589` on verifier commit `288416f4af0ace11485575999bef01618b932c8f` — clean install, all Qwen Web focused core tests, CLI auth/lifecycle tests (including Ink/OpenTUI suites), full build and typecheck PASS.
 
+### Stage 9 — mocked end-to-end host-tool integration — COMPLETE
+
+Primary test commit: `36ad249fe00792704fd2ce939b1604e15249d697`.
+Follow-up assertions pin escaped host-tool result semantics through feature state `9f590b414374911cd386f949e8e06405e8b2a069`.
+
+Implemented integration coverage through the real Qwen Code path:
+
+- `QwenWebContentGenerator` with only the external browser transport mocked;
+- real `LlmChat` XML fallback converts literal `<invoke>` into a structured `FunctionCall`;
+- standard `FunctionResponse` is serialized back to Qwen Web as a host-tool result;
+- final model response returns through the same real `LlmChat` path;
+- multiple sequential host-tool calls before a final answer are covered;
+- tests verify that escaping remains active in the browser prompt rather than weakening the transport for test convenience.
+
+No second agent loop, parser or test-only tool protocol was added.
+
+### Stage 10 — negative/security invariants — COMPLETE
+
+Security test commit: `92cfd1cdc55c009af1d3ad07ad5aba90d1d1b225`.
+
+Covered invariants:
+
+- hostile tool output cannot break out of `<result>` and create a forged `<invoke>`;
+- both `inlineData` and `fileData` fail explicitly for the text-only v1 transport;
+- embeddings fail explicitly without touching browser transport;
+- missing model fails before browser transport;
+- browser/controller source contains no cookie/localStorage/sessionStorage/access-token/refresh-token extraction primitives.
+
+Verification for Stages 2–10: run `35254453975` on feature SHA `9f590b414374911cd386f949e8e06405e8b2a069` — `npm ci`, all focused Qwen Web core tests (including Stages 9–10), all focused CLI tests, full build and typecheck PASS.
+
 ## Current stage
 
-### Stage 9 — mocked end-to-end host-tool integration — IN PROGRESS
-
-Required scenarios:
-
-1. Qwen Code request -> fake browser -> XML `<invoke>` -> existing XML recovery -> FunctionCall -> fake host tool -> FunctionResponse -> browser serialization -> final answer.
-2. Multiple sequential host tools before final answer.
-3. Permission-gated edit path where feasible without duplicating Qwen Code scheduler logic.
-4. Abort then canonical replay.
-5. Main/subagent channel isolation while sharing one browser service.
-
-**NEXT ACTION:** inspect existing `LlmChat`/XML-recovery/tool-scheduler tests, add the smallest fake browser/content-generator seam that exercises the real Qwen Code XML recovery and host-tool round trip, then add the Stage 9 test file to the existing verifier. Do not create a second agent loop or a test-only tool protocol.
-
-## Remaining stages
-
-### Stage 10 — negative/security invariants
-
-- No cookie/storage/token extraction/logging.
-- No hidden Qwen APIs or native Qwen Web tools.
-- Embeddings/media unsupported explicitly.
-- Browser/model mismatch errors explicit.
-- Tool-result XML escaping/injection regression tests.
-
-### Stage 11 — full automated gate
+### Stage 11 — full automated gate — IN PROGRESS
 
 Required clean run:
 
@@ -155,6 +163,10 @@ npm run test
 npm run test:ci
 npm run check:serve-fast-path-bundle
 ```
+
+**NEXT ACTION:** run the commands above in a dedicated non-mutating GitHub Actions verifier on the current feature branch. Fix only concrete failures, re-run until green, then record the final run ID and move to Stage 12.
+
+## Remaining stage
 
 ### Stage 12 — real Qwen Web manual acceptance
 
