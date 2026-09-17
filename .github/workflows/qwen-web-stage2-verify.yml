@@ -1,0 +1,34 @@
+name: Qwen Web Stage 2 Verify
+
+on:
+  push:
+    branches:
+      - work/stage2-browser-transport
+    paths:
+      - 'packages/core/src/core/qwenWebContentGenerator/browser/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: work/stage2-browser-transport
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Clean install
+        run: npm ci
+      - name: Focused Stage 2 tests
+        run: npm -w packages/core test -- src/core/qwenWebContentGenerator/browser/controller.test.ts src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
