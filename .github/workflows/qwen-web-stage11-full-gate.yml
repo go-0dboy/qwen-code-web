@@ -1,0 +1,39 @@
+name: Qwen Web Stage 11 Full Gate
+
+on:
+  push:
+    branches:
+      - feat/qwen-web-browser-provider
+    paths:
+      - '.github/workflows/qwen-web-stage11-full-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Clean install
+        run: npm ci
+      - name: Check lockfile
+        run: npm run check:lockfile
+      - name: Lint
+        run: npm run lint:ci
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Workspace tests
+        run: npm run test
+      - name: CI tests
+        run: npm run test:ci
+      - name: Serve fast-path bundle check
+        run: npm run check:serve-fast-path-bundle
