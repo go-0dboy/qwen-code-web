@@ -118,6 +118,21 @@ export const DEFAULT_MODELS = {
 } as Partial<Record<AuthType, string>>;
 
 /**
+ * Hard-coded Qwen Web models. The browser transport is deliberately
+ * text-only in v1, even when a similarly named API model supports
+ * richer modalities.
+ */
+export const QWEN_WEB_MODELS: ModelConfig[] = [
+  {
+    id: QWEN_WEB_DEFAULT_MODEL,
+    name: QWEN_WEB_DEFAULT_MODEL,
+    description: 'Qwen 3.8 Max via Qwen Web browser session',
+    capabilities: {},
+    generationConfig: { modalities: {} },
+  },
+];
+
+/**
  * Hard-coded Qwen OAuth models that are always available.
  * These cannot be overridden by user configuration.
  */

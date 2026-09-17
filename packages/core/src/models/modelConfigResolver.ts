@@ -159,6 +159,8 @@ export function resolveModelConfig(
     return resolveQwenOAuthConfig(input, warnings);
   }
 
+  const isQwenWeb = authType === AuthType.QWEN_WEB;
+
   // Get auth-specific env var mappings.
   // If authType is not provided, do not read any auth env vars.
   const envMapping = authType
@@ -201,7 +203,7 @@ export function resolveModelConfig(
   const apiKeyLayers: Array<ConfigLayer<string>> = [];
 
   // For modelProvider, read from the specified envKey
-  if (authType && modelProvider?.envKey) {
+  if (!isQwenWeb && authType && modelProvider?.envKey) {
     const apiKeyFromEnv = env[modelProvider.envKey];
     if (apiKeyFromEnv) {
       apiKeyLayers.push(
@@ -213,13 +215,15 @@ export function resolveModelConfig(
       );
     }
   }
-  if (cli?.apiKey) {
+  if (!isQwenWeb && cli?.apiKey) {
     apiKeyLayers.push(layer(cli.apiKey, cliSource('--openaiApiKey')));
   }
-  for (const envKey of envMapping.apiKey) {
-    apiKeyLayers.push(envLayer(env, envKey));
+  if (!isQwenWeb) {
+    for (const envKey of envMapping.apiKey) {
+      apiKeyLayers.push(envLayer(env, envKey));
+    }
   }
-  if (settings?.apiKey) {
+  if (!isQwenWeb && settings?.apiKey) {
     apiKeyLayers.push(
       layer(settings.apiKey, settingsSource('security.auth.apiKey')),
     );
@@ -233,7 +237,7 @@ export function resolveModelConfig(
   // ---- Base URL ----
   const baseUrlLayers: Array<ConfigLayer<string>> = [];
 
-  if (authType && modelProvider?.baseUrl) {
+  if (!isQwenWeb && authType && modelProvider?.baseUrl) {
     baseUrlLayers.push(
       layer(
         modelProvider.baseUrl,
@@ -241,13 +245,15 @@ export function resolveModelConfig(
       ),
     );
   }
-  if (cli?.baseUrl) {
+  if (!isQwenWeb && cli?.baseUrl) {
     baseUrlLayers.push(layer(cli.baseUrl, cliSource('--openaiBaseUrl')));
   }
-  for (const envKey of envMapping.baseUrl) {
-    baseUrlLayers.push(envLayer(env, envKey));
+  if (!isQwenWeb) {
+    for (const envKey of envMapping.baseUrl) {
+      baseUrlLayers.push(envLayer(env, envKey));
+    }
   }
-  if (settings?.baseUrl) {
+  if (!isQwenWeb && settings?.baseUrl) {
     baseUrlLayers.push(
       layer(settings.baseUrl, settingsSource('security.auth.baseUrl')),
     );
@@ -260,7 +266,7 @@ export function resolveModelConfig(
 
   // ---- API Key Env Key (for error messages) ----
   let apiKeyEnvKey: string | undefined;
-  if (authType && modelProvider?.envKey) {
+  if (!isQwenWeb && authType && modelProvider?.envKey) {
     apiKeyEnvKey = modelProvider.envKey;
     sources['apiKeyEnvKey'] = {
       ...modelProvidersSource(authType, modelProvider.id, 'envKey'),
@@ -429,6 +435,16 @@ function resolveGenerationConfig(
   if (result.modalities === undefined && modelId) {
     result.modalities = defaultModalities(modelId);
     sources['modalities'] = computedSource('auto-detected from model');
+  }
+
+  // Qwen Web v1 transports text through the browser DOM only. Override
+  // generic model-name detection and any settings/provider declaration so
+  // callers cannot advertise media that this transport cannot carry.
+  if (authType === AuthType.QWEN_WEB) {
+    result.modalities = {};
+    sources['modalities'] = computedSource(
+      'qwen-web browser transport is text-only',
+    );
   }
 
   return result;
