@@ -1,0 +1,740 @@
+name: Qwen Web Stage 2 Browser Transport
+
+on:
+  push:
+    branches:
+      - work/stage2-browser-transport
+    paths:
+      - .github/workflows/qwen-web-stage2-browser-transport.yml
+
+permissions:
+  contents: write
+
+jobs:
+  stage2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: work/stage2-browser-transport
+          fetch-depth: 0
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply Stage 2 transport hardening
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label} anchor not found')
+              return text.replace(old, new, 1)
+
+          def replace_between(text, start, end, new, label):
+              a = text.find(start)
+              if a < 0:
+                  raise SystemExit(f'{label} start anchor not found')
+              b = text.find(end, a)
+              if b < 0:
+                  raise SystemExit(f'{label} end anchor not found')
+              return text[:a] + new + text[b:]
+
+          controller = Path('packages/core/src/core/qwenWebContentGenerator/browser/controller.ts')
+          text = controller.read_text()
+          text = replace_once(
+              text,
+              "import puppeteer, { type Browser, type Page } from 'puppeteer-core';",
+              "import puppeteer, { type Browser, type LaunchOptions, type Page } from 'puppeteer-core';",
+              'controller import',
+          )
+          text = replace_once(
+              text,
+              "const QWEN_WEB_URL = 'https://chat.qwen.ai/';\n",
+              """const QWEN_WEB_URL = 'https://chat.qwen.ai/';
+const QWEN_WEB_PROTOCOL_TIMEOUT_MS = 30 * 60_000;
+
+export function qwenWebModelLabelMatches(
+  selected: string,
+  requested: string,
+): boolean {
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const selectedNormalized = normalize(selected);
+  const requestedNormalized = normalize(requested);
+  return (
+    selectedNormalized === requestedNormalized ||
+    selectedNormalized.includes(requestedNormalized)
+  );
+}
+
+export function buildQwenWebBrowserLaunchOptions(
+  executablePath: string,
+  userDataDir: string,
+  headless: boolean,
+): LaunchOptions {
+  return {
+    executablePath,
+    userDataDir,
+    headless,
+    defaultViewport: null,
+    protocolTimeout: QWEN_WEB_PROTOCOL_TIMEOUT_MS,
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    handleSIGHUP: false,
+    args: [
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ],
+  };
+}
+""",
+              'controller helpers',
+          )
+          old_launch = """    const browser = await puppeteer.launch({
+      executablePath,
+      userDataDir: paths.profileDir,
+      headless,
+      args: [
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-background-networking',
+        '--disable-component-update',
+      ],
+    });"""
+          new_launch = """    const browser = await puppeteer.launch(
+      buildQwenWebBrowserLaunchOptions(
+        executablePath,
+        paths.profileDir,
+        headless,
+      ),
+    );"""
+          text = replace_once(text, old_launch, new_launch, 'controller launch')
+          old_model = """    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (normalize(selected) !== normalize(model)) {"""
+          text = replace_once(
+              text,
+              old_model,
+              """    if (!qwenWebModelLabelMatches(selected, model)) {""",
+              'controller model verification',
+          )
+          controller.write_text(text)
+
+          types = Path('packages/core/src/core/qwenWebContentGenerator/browser/types.ts')
+          text = types.read_text()
+          text = replace_once(
+              text,
+              '  getStatus(): QwenWebRuntimeStatus;',
+              '  getStatus(): Promise<QwenWebRuntimeStatus>;',
+              'bridge async status',
+          )
+          types.write_text(text)
+
+          config = Path('packages/core/src/core/qwenWebContentGenerator/browser/config.ts')
+          text = config.read_text()
+          text = replace_once(
+              text,
+              "      '/Applications/Yandex.app/Contents/MacOS/Yandex',\n",
+              "      '/Applications/Yandex.app/Contents/MacOS/Yandex',\n      '/Applications/Yandex Browser.app/Contents/MacOS/Yandex Browser',\n",
+              'mac yandex candidate',
+          )
+          config.write_text(text)
+
+          runtime = Path('packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.ts')
+          text = runtime.read_text()
+          text = replace_once(
+              text,
+              "export function installQwenWebPageRuntime(): void {\n",
+              """export interface QwenWebPageRuntimeOptions {
+  loginStabilityMs?: number;
+  loginDetectionTimeoutMs?: number;
+}
+
+export function installQwenWebPageRuntime(
+  options: QwenWebPageRuntimeOptions = {},
+): void {
+""",
+              'runtime signature',
+          )
+          text = replace_once(
+              text,
+              "  if (bridgeWindow.__qwenCodeWebBridge) return;\n",
+              """  if (bridgeWindow.__qwenCodeWebBridge) return;
+
+  const loginStabilityMs = Math.max(0, options.loginStabilityMs ?? 3_000);
+  const loginDetectionTimeoutMs = Math.max(
+    loginStabilityMs,
+    options.loginDetectionTimeoutMs ?? 8_000,
+  );
+  let inferredAuthenticated = false;
+""",
+              'runtime login options',
+          )
+
+          response_block = """  const responseElements = (): HTMLElement[] => {
+    for (const selector of responseSelectors) {
+      const values = Array.from(document.querySelectorAll(selector)).filter(
+        isVisible,
+      ) as HTMLElement[];
+      if (values.length > 0) return values;
+    }
+    return [];
+  };
+
+  const cleanResponseText = (element: HTMLElement): string => {
+    const clone = element.cloneNode(true) as HTMLElement;
+    for (const removable of Array.from(
+      clone.querySelectorAll(
+        'button,svg,[aria-hidden="true"],[data-line-number],[aria-label*="copy" i],[class*="copy" i],[class*="line-number" i],[class*="lineNumber" i]',
+      ),
+    )) {
+      removable.remove();
+    }
+    return (clone.innerText || clone.textContent || '')
+      .replace(/\\u00a0/g, ' ')
+      .trim();
+  };
+
+"""
+          text = replace_between(
+              text,
+              '  const responseElements = (): HTMLElement[] => {',
+              '  const currentResponse = (): { count: number; text: string } => {',
+              response_block,
+              'runtime response extraction',
+          )
+
+          auth_comparison_block = """  const visibleLoginControl = (): boolean => {
+    const direct = findVisible([
+      'a[href*="login" i]',
+      'a[href*="signin" i]',
+      'button[data-testid*="login" i]',
+      'button[data-testid*="signin" i]',
+    ]);
+    if (direct) return true;
+    const exact = /^(log in|sign in|sign up|войти|регистрация|登录|注册)$/i;
+    return Array.from(document.querySelectorAll('button,a')).some((element) => {
+      if (!isVisible(element)) return false;
+      return exact.test(normalizeText(element.textContent ?? ''));
+    });
+  };
+
+  const detectLoggedIn = (): boolean | undefined => {
+    if (/\\/(?:login|signin|auth)(?:\\/|$)/i.test(window.location.pathname)) {
+      return false;
+    }
+    if (visibleLoginControl()) return false;
+    const account = findVisible([
+      '[class*="avatar" i]',
+      'img[alt*="avatar" i]',
+      '[aria-label*="profile" i]',
+      '[aria-label*="account" i]',
+      '[data-testid*="profile" i]',
+    ]);
+    if (account) return true;
+    if (inferredAuthenticated && inputElement()) return true;
+    return inputElement() ? undefined : undefined;
+  };
+
+  const waitForLoginState = async (): Promise<boolean> => {
+    const startedAt = Date.now();
+    const deadline = startedAt + loginDetectionTimeoutMs;
+    let state = detectLoggedIn();
+    while (state === undefined && Date.now() < deadline) {
+      if (
+        inputElement() &&
+        !visibleLoginControl() &&
+        Date.now() - startedAt >= loginStabilityMs
+      ) {
+        inferredAuthenticated = true;
+        return true;
+      }
+      await sleep(250);
+      state = detectLoggedIn();
+    }
+    return state ?? false;
+  };
+
+  const comparisonVisible = (): boolean => {
+    const text = normalizeText(document.body?.innerText ?? '').slice(-12_000);
+    return (
+      /Which response do you prefer\\?.*Choose one.*continue/i.test(text) ||
+      /Какой ответ вы предпочитаете\\?.*Выберите один.*продолж/i.test(text) ||
+      /请选择.*(?:回答|回复).*(?:继续|提交)/i.test(text)
+    );
+  };
+
+  const resolveComparison = (): boolean => {
+    if (!comparisonVisible()) return false;
+    const controls = Array.from(
+      document.querySelectorAll('button,[role="button"],label'),
+    ).filter(isVisible) as HTMLElement[];
+    const skipPattern = /^(skip|пропустить|не могу выбрать|оба одинаковы|none|не выбирать)$/i;
+    const choicePattern = /^(?:Response|Answer|Option|Ответ|Вариант)\\s*[12]$/i;
+    const candidates = controls.filter((element) =>
+      choicePattern.test(normalizeText(element.textContent ?? '')),
+    );
+    const choice =
+      controls.find((element) =>
+        skipPattern.test(normalizeText(element.textContent ?? '')),
+      ) ??
+      candidates[1] ??
+      candidates[0];
+    if (!(choice instanceof HTMLElement)) return false;
+    choice.focus();
+    choice.click();
+    return true;
+  };
+
+  const nativeToolVisible = (): boolean => {
+    const latest = responseElements().at(-1);
+    if (!latest) return false;
+    return Array.from(
+      latest.querySelectorAll(
+        '[data-testid*="web-search" i],[data-testid*="tool-call" i],[class*="web-search" i],[class*="tool-call" i],[class*="toolCall"]',
+      ),
+    ).some(isVisible);
+  };
+
+"""
+          text = replace_between(
+              text,
+              '  const visibleLoginControl = (): boolean => {',
+              '  const providerError = (): string | undefined => {',
+              auth_comparison_block,
+              'runtime auth/comparison/native tool',
+          )
+
+          provider_block = """  const providerError = (): string | undefined => {
+    const bodyText = normalizeText(document.body?.innerText ?? '').slice(-9_000);
+    const nativeTool = bodyText.match(
+      /Tool\\s+([A-Za-z0-9_.-]+)\\s+does not exists?\\./i,
+    );
+    if (nativeTool) return `Qwen native-tool collision: ${nativeTool[1]}`;
+    if (/Oops! There was an issue connecting to Qwen3[.\\s-]*8-Max/i.test(bodyText)) {
+      return 'Qwen3.8-Max connection error';
+    }
+    if (/An unexpected error occurred\\. Please try again later/i.test(bodyText)) {
+      return 'Qwen unexpected connection error';
+    }
+    if (/The request is ended!?/i.test(bodyText) && /The chat is in progress!?/i.test(bodyText)) {
+      return 'Qwen request/chat state conflict';
+    }
+    if (/The request is ended!?/i.test(bodyText)) return 'Qwen request ended unexpectedly';
+    if (/The chat is in progress!?/i.test(bodyText)) return 'Qwen chat is stuck in progress';
+
+    const alert = findVisible([
+      '[role="alert"]',
+      '[class*="error-message" i]',
+      '[class*="request-error" i]',
+    ]);
+    const alertText = normalizeText(alert?.textContent ?? '');
+    return alertText || undefined;
+  };
+
+  const retryControl = (): HTMLButtonElement | undefined => {
+    const pattern = /(retry|regenerate|generate again|try again|refresh|redo|重新生成|重试|повтор(?:ить)?|сгенерировать заново)/i;
+    return Array.from(document.querySelectorAll('button,[role="button"]')).find(
+      (element): element is HTMLButtonElement =>
+        element instanceof HTMLButtonElement &&
+        !element.disabled &&
+        element.getAttribute('aria-disabled') !== 'true' &&
+        isVisible(element) &&
+        pattern.test(normalizeText(element.textContent ?? '')),
+    );
+  };
+
+"""
+          text = replace_between(
+              text,
+              '  const providerError = (): string | undefined => {',
+              '  const readCurrentModel = (): string | undefined => {',
+              provider_block,
+              'runtime provider/retry',
+          )
+
+          text = replace_once(
+              text,
+              "  const normalizeModel = (value: string) =>\n    value.toLowerCase().replace(/[^a-z0-9]+/g, '');\n",
+              """  const normalizeModel = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const modelMatches = (candidate: string | undefined, requested: string) => {
+    if (!candidate) return false;
+    const candidateNormalized = normalizeModel(candidate);
+    const requestedNormalized = normalizeModel(requested);
+    return (
+      candidateNormalized === requestedNormalized ||
+      candidateNormalized.includes(requestedNormalized)
+    );
+  };
+""",
+              'runtime model matcher',
+          )
+
+          get_status = """  const getStatus = async (): Promise<QwenWebRuntimeStatus> => {
+    const response = currentResponse();
+    return {
+      loggedIn: await waitForLoginState(),
+      generating: Boolean(activeStopButton()),
+      model: readCurrentModel(),
+      responseCount: response.count,
+      responseText: response.text,
+      comparisonVisible: comparisonVisible(),
+      providerError: providerError(),
+      nativeToolVisible: nativeToolVisible(),
+    };
+  };
+
+"""
+          text = replace_between(
+              text,
+              '  const getStatus = (): QwenWebRuntimeStatus => {',
+              '  const selectModel = async (requestedModel: string): Promise<string> => {',
+              get_status,
+              'runtime getStatus',
+          )
+
+          select_model = """  const selectModel = async (requestedModel: string): Promise<string> => {
+    const existing = readCurrentModel();
+    if (modelMatches(existing, requestedModel)) return existing!;
+
+    const trigger = Array.from(document.querySelectorAll('button,[role="button"]'))
+      .filter(isVisible)
+      .filter((element) => /qwen|model/i.test(normalizeText(element.textContent ?? '')))
+      .sort(
+        (a, b) =>
+          normalizeText(a.textContent ?? '').length -
+          normalizeText(b.textContent ?? '').length,
+      )[0];
+    if (trigger instanceof HTMLElement) trigger.click();
+    await sleep(500);
+
+    const choices = Array.from(
+      document.querySelectorAll(
+        'button,[role="option"],[role="menuitem"],[data-radix-collection-item],[tabindex]',
+      ),
+    )
+      .filter(isVisible)
+      .filter((element) =>
+        modelMatches(normalizeText(element.textContent ?? ''), requestedModel),
+      )
+      .sort(
+        (a, b) =>
+          normalizeText(a.textContent ?? '').length -
+          normalizeText(b.textContent ?? '').length,
+      );
+    const choice = choices[0];
+    if (!(choice instanceof HTMLElement)) {
+      throw new Error(
+        `Requested Qwen Web model '${requestedModel}' is not available in the model selector.`,
+      );
+    }
+    choice.click();
+
+    const deadline = Date.now() + 5_000;
+    let selected = readCurrentModel();
+    while (Date.now() < deadline && !modelMatches(selected, requestedModel)) {
+      await sleep(250);
+      selected = readCurrentModel();
+    }
+    if (!selected || !modelMatches(selected, requestedModel)) {
+      throw new Error(
+        `Qwen Web did not confirm model '${requestedModel}' after selection. Current model: '${selected ?? 'unknown'}'.`,
+      );
+    }
+    return selected;
+  };
+
+"""
+          text = replace_between(
+              text,
+              '  const selectModel = async (requestedModel: string): Promise<string> => {',
+              '  const preparePrompt = async (',
+              select_model,
+              'runtime selectModel',
+          )
+          text = replace_once(
+              text,
+              '    const acceptedDeadline = Date.now() + 1_500;',
+              '    const acceptedDeadline = Date.now() + 20_000;',
+              'runtime prompt acceptance timeout',
+          )
+          text = replace_once(
+              text,
+              '      let retryCount = 0;\n      let settled = false;\n',
+              """      let retryCount = 0;
+      let settled = false;
+      let comparisonStartedAt = 0;
+      let comparisonAttempts = 0;
+      let lastComparisonAttemptAt = 0;
+""",
+              'runtime comparison state',
+          )
+          text = replace_once(
+              text,
+              '        if (Date.now() - started > 10 * 60_000) {',
+              '        if (Date.now() - started > 25 * 60_000) {',
+              'runtime response timeout',
+          )
+          text = replace_once(
+              text,
+              '        if (resolveComparison()) return;\n',
+              """        if (comparisonVisible()) {
+          if (activeStopButton()) return;
+          comparisonStartedAt ||= Date.now();
+          if (
+            comparisonAttempts < 2 &&
+            Date.now() - lastComparisonAttemptAt >= 1_000
+          ) {
+            lastComparisonAttemptAt = Date.now();
+            if (resolveComparison()) comparisonAttempts += 1;
+          }
+          if (Date.now() - comparisonStartedAt >= 25_000) {
+            finish(() =>
+              reject(
+                new Error(
+                  'Qwen Web response-comparison screen did not resolve after two selection attempts.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+        comparisonStartedAt = 0;
+        comparisonAttempts = 0;
+""",
+              'runtime comparison wait',
+          )
+          runtime.write_text(text)
+
+          Path('packages/core/src/core/qwenWebContentGenerator/browser/controller.test.ts').write_text(r'''/**
+           * @license
+           * Copyright 2026 Qwen Team
+           * SPDX-License-Identifier: Apache-2.0
+           */
+
+          import { describe, expect, it } from 'vitest';
+          import {
+            buildQwenWebBrowserLaunchOptions,
+            qwenWebModelLabelMatches,
+          } from './controller.js';
+
+          describe('Qwen Web browser controller launch contract', () => {
+            it('uses long CDP timeout, disables signal ownership and background throttling', () => {
+              const options = buildQwenWebBrowserLaunchOptions(
+                '/browser',
+                '/profile',
+                true,
+              );
+              expect(options.protocolTimeout).toBe(30 * 60_000);
+              expect(options.handleSIGINT).toBe(false);
+              expect(options.handleSIGTERM).toBe(false);
+              expect(options.handleSIGHUP).toBe(false);
+              expect(options.defaultViewport).toBeNull();
+              expect(options.args).toEqual(
+                expect.arrayContaining([
+                  '--disable-background-timer-throttling',
+                  '--disable-backgrounding-occluded-windows',
+                  '--disable-renderer-backgrounding',
+                ]),
+              );
+            });
+
+            it('accepts decorated UI labels without allowing a different model family', () => {
+              expect(
+                qwenWebModelLabelMatches('Qwen3.8-Max · Latest', 'qwen3.8-max'),
+              ).toBe(true);
+              expect(
+                qwenWebModelLabelMatches('Qwen3.8-Plus', 'qwen3.8-max'),
+              ).toBe(false);
+            });
+          });
+          ''')
+
+          Path('packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts').write_text(r'''/**
+           * @license
+           * Copyright 2026 Qwen Team
+           * SPDX-License-Identifier: Apache-2.0
+           */
+
+          import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+          import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+          import { installQwenWebPageRuntime } from './pageRuntime.js';
+          import type { QwenWebPageBridge } from './types.js';
+
+          type BridgeWindow = Window & { __qwenCodeWebBridge?: QwenWebPageBridge };
+          const executablePath = process.env['QWEN_WEB_TEST_BROWSER_PATH'];
+          const browserDescribe = executablePath ? describe : describe.skip;
+
+          browserDescribe('Qwen Web page runtime in Chromium', () => {
+            let browser: Browser;
+
+            beforeAll(async () => {
+              if (!executablePath) throw new Error('QWEN_WEB_TEST_BROWSER_PATH is required.');
+              browser = await puppeteer.launch({
+                executablePath,
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+              });
+            });
+
+            afterAll(async () => {
+              await browser?.close();
+            });
+
+            const createPage = async (html: string): Promise<Page> => {
+              const page = await browser.newPage();
+              await page.setContent(html);
+              await page.evaluate(installQwenWebPageRuntime, {
+                loginStabilityMs: 25,
+                loginDetectionTimeoutMs: 500,
+              });
+              return page;
+            };
+
+            const status = async (page: Page) =>
+              page.evaluate(async () => {
+                const bridge = (window as BridgeWindow).__qwenCodeWebBridge;
+                if (!bridge) throw new Error('bridge missing');
+                return bridge.getStatus();
+              });
+
+            it('preserves multiline response text and uses only the first matching selector family', async () => {
+              const page = await createPage(`
+                <div class="avatar" style="width:20px;height:20px">account</div>
+                <div class="response-message-content phase-answer" style="width:500px;height:100px"><pre>line one\n    indented line\nline three</pre></div>
+                <div class="chat-response-message" style="width:500px;height:40px">fallback duplicate</div>
+              `);
+              const current = await status(page);
+              expect(current.responseCount).toBe(1);
+              expect(current.responseText).toContain('line one\n    indented line\nline three');
+              expect(current.responseText).not.toContain('fallback duplicate');
+              await page.close();
+            });
+
+            it('stabilizes input-only login detection but rejects an explicit sign-in page', async () => {
+              const loggedInPage = await createPage(
+                '<textarea style="width:300px;height:80px"></textarea>',
+              );
+              expect((await status(loggedInPage)).loggedIn).toBe(true);
+              await loggedInPage.close();
+
+              const loginPage = await createPage(`
+                <textarea style="width:300px;height:80px"></textarea>
+                <button style="width:100px;height:30px">Sign in</button>
+              `);
+              expect((await status(loginPage)).loggedIn).toBe(false);
+              await loginPage.close();
+            });
+
+            it('ignores the permanent Web Search control but detects a native tool inside the response', async () => {
+              const page = await createPage(`
+                <div class="avatar" style="width:20px;height:20px">account</div>
+                <button data-testid="web-search" style="width:100px;height:30px">Web Search</button>
+                <div id="answer" class="response-message-content phase-answer" style="width:500px;height:100px">answer</div>
+              `);
+              expect((await status(page)).nativeToolVisible).toBe(false);
+              await page.evaluate(() => {
+                const answer = document.querySelector('#answer');
+                const tool = document.createElement('div');
+                tool.setAttribute('data-testid', 'tool-call');
+                tool.setAttribute('style', 'width:200px;height:30px');
+                tool.textContent = 'Searching the web';
+                answer?.append(tool);
+              });
+              expect((await status(page)).nativeToolVisible).toBe(true);
+              await page.close();
+            });
+
+            it('recognizes a decorated Qwen3.8-Max label as the requested model', async () => {
+              const page = await createPage(`
+                <div class="avatar" style="width:20px;height:20px">account</div>
+                <button style="width:220px;height:30px">Qwen3.8-Max · Latest</button>
+              `);
+              const selected = await page.evaluate(async () => {
+                const bridge = (window as BridgeWindow).__qwenCodeWebBridge;
+                if (!bridge) throw new Error('bridge missing');
+                return bridge.selectModel('qwen3.8-max');
+              });
+              expect(selected).toContain('Qwen3.8-Max');
+              await page.close();
+            });
+
+            it('never completes a closed invoke while the Stop control is still active', async () => {
+              const page = await createPage(`
+                <div class="avatar" style="width:20px;height:20px">account</div>
+                <textarea style="width:300px;height:80px"></textarea>
+              `);
+              const responsePromise = page.evaluate(async () => {
+                const bridge = (window as BridgeWindow).__qwenCodeWebBridge;
+                if (!bridge) throw new Error('bridge missing');
+                return bridge.waitForResponse({
+                  baselineCount: 0,
+                  baselineText: '',
+                  accepted: true,
+                });
+              });
+              await page.evaluate(() => {
+                const response = document.createElement('div');
+                response.className = 'response-message-content phase-answer';
+                response.setAttribute('style', 'width:500px;height:100px');
+                response.innerHTML = '<pre>&lt;invoke name="read_file"&gt;&lt;parameter name="file_path"&gt;a.ts&lt;/parameter&gt;&lt;/invoke&gt;</pre>';
+                document.body.append(response);
+                const stop = document.createElement('button');
+                stop.className = 'stop-button';
+                stop.setAttribute('style', 'width:100px;height:30px');
+                stop.textContent = 'Stop';
+                document.body.append(stop);
+              });
+              const early = await Promise.race([
+                responsePromise.then(() => 'resolved'),
+                new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 800)),
+              ]);
+              expect(early).toBe('pending');
+              await page.evaluate(() => document.querySelector('.stop-button')?.remove());
+              await expect(responsePromise).resolves.toContain('<invoke name="read_file">');
+              await page.close();
+            });
+          });
+          ''')
+          PY
+      - name: Clean install
+        run: npm ci
+      - name: Format Stage 2 files
+        run: npx prettier --write packages/core/src/core/qwenWebContentGenerator/browser/config.ts packages/core/src/core/qwenWebContentGenerator/browser/controller.ts packages/core/src/core/qwenWebContentGenerator/browser/types.ts packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.ts packages/core/src/core/qwenWebContentGenerator/browser/controller.test.ts packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts
+      - name: Locate system browser for DOM tests
+        run: |
+          BROWSER="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$BROWSER" ]; then
+            echo "No system Chrome/Chromium found on runner" >&2
+            exit 1
+          fi
+          echo "QWEN_WEB_TEST_BROWSER_PATH=$BROWSER" >> "$GITHUB_ENV"
+          "$BROWSER" --version
+      - name: Focused Stage 2 tests
+        run: npm -w packages/core test -- src/core/qwenWebContentGenerator/browser/controller.test.ts src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Commit verified Stage 2 product and tests
+        run: |
+          git config user.name "go-0dboy"
+          git config user.email "84291994+go-0dboy@users.noreply.github.com"
+          git add packages/core/src/core/qwenWebContentGenerator/browser/config.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/controller.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/types.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/controller.test.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts
+          git commit -m "fix(qwen-web): restore hardened browser transport semantics"
+          git push origin HEAD:work/stage2-browser-transport
