@@ -37,3 +37,5 @@ jobs:
         run: npm run test:ci
       - name: Serve fast-path bundle check
         run: npm run check:serve-fast-path-bundle
+
+# Stage 11 rerun after kebab migration and browser transport hardening.
