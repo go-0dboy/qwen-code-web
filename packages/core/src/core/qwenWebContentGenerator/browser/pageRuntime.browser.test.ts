@@ -129,7 +129,7 @@ describeWithBrowser('Qwen Web page runtime DOM adapter', () => {
   it('does not return a closed invoke while the Stop control is still active', async () => {
     const page = await runtimePage(`
       <textarea style="width:200px;height:40px"></textarea>
-      <div class="response-message-content phase-answer" style="width:400px;min-height:40px"><invoke name="read_file"><parameter name="file_path">src/index.ts</parameter></invoke></div>
+      <div class="response-message-content phase-answer" style="width:400px;min-height:40px">&lt;invoke name="read_file"&gt;&lt;parameter name="file_path"&gt;src/index.ts&lt;/parameter&gt;&lt;/invoke&gt;</div>
       <button class="stop-button" style="width:100px;height:30px">Stop</button>
     `);
 
