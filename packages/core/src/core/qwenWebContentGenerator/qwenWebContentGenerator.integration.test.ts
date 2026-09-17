@@ -99,18 +99,18 @@ function makeConfig(
 
 function makeHarness(responses: string[]) {
   const browser = new ScriptedBrowserService(responses);
-  let config!: Config;
+  const sessionId = 'stage9-session';
   const generator = new QwenWebContentGenerator(
     {
       authType: 'qwen-web',
       model: MODEL,
     } as ContentGeneratorConfig,
     {
-      getSessionId: () => config.getSessionId(),
+      getSessionId: () => sessionId,
     } as Config,
     browser,
   );
-  config = makeConfig(generator);
+  const config = makeConfig(generator, sessionId);
   const chat = new LlmChat(
     config,
     {
