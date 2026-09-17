@@ -212,6 +212,14 @@ export class PuppeteerBrowserController {
       .catch(() => undefined);
   }
 
+  async disposeChannel(channel: string): Promise<void> {
+    const entry = this.channels.get(channel);
+    this.channels.delete(channel);
+    if (entry && !entry.page.isClosed()) {
+      await entry.page.close().catch(() => undefined);
+    }
+  }
+
   async close(): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
