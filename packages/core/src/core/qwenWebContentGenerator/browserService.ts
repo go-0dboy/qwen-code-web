@@ -13,18 +13,49 @@ export interface QwenWebChannelSession {
   send(prompt: string, model: string): Promise<string>;
 }
 
+export interface QwenWebBrowserController {
+  prepareChannel(
+    channel: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<QwenWebTransportState>;
+  newConversation(
+    channel: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<QwenWebTransportState>;
+  sendPrompt(
+    channel: string,
+    prompt: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  stopGeneration(channel: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface QwenWebBrowserServiceLike {
+  withChannel<T>(
+    channel: string,
+    signal: AbortSignal | undefined,
+    operation: (session: QwenWebChannelSession) => Promise<T>,
+  ): Promise<T>;
+}
+
 function abortError(): Error {
   const error = new Error('Qwen Web browser request was aborted.');
   error.name = 'AbortError';
   return error;
 }
 
-export class QwenWebBrowserService {
-  private readonly controller: PuppeteerBrowserController;
+export class QwenWebBrowserService implements QwenWebBrowserServiceLike {
+  private readonly controller: QwenWebBrowserController;
   private readonly channelTails = new Map<string, Promise<void>>();
   private closed = false;
 
-  constructor(controller = new PuppeteerBrowserController()) {
+  constructor(
+    controller: QwenWebBrowserController = new PuppeteerBrowserController(),
+  ) {
     this.controller = controller;
   }
 

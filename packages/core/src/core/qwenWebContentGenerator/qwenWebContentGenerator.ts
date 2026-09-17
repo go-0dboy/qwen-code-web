@@ -21,7 +21,7 @@ import type {
 } from '../contentGenerator.js';
 import {
   getQwenWebBrowserService,
-  type QwenWebBrowserService,
+  type QwenWebBrowserServiceLike,
 } from './browserService.js';
 import { transportEpochKey } from './browser/types.js';
 import {
@@ -92,7 +92,7 @@ export class QwenWebContentGenerator implements ContentGenerator {
   constructor(
     private readonly generatorConfig: ContentGeneratorConfig,
     private readonly config: Config,
-    private readonly browserService: QwenWebBrowserService =
+    private readonly browserService: QwenWebBrowserServiceLike =
       getQwenWebBrowserService(),
   ) {}
 

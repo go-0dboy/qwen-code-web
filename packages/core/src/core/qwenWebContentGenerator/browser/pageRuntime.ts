@@ -405,7 +405,7 @@ export function installQwenWebPageRuntime(): void {
           (response.text && response.text !== prepared.baselineText);
         if (!advanced) return;
 
-        if (nativeToolVisible() && !response.text.includes('<invoke')) {
+        if (nativeToolVisible()) {
           finish(() =>
             reject(
               new Error(

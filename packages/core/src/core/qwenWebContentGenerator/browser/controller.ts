@@ -67,6 +67,15 @@ export class PuppeteerBrowserController {
   ): Promise<QwenWebTransportState> {
     await this.ensureAuthenticated(signal);
     let entry = this.channels.get(channel);
+    if (entry && !entry.page.isClosed()) {
+      const status = await this.status(entry.page).catch(() => undefined);
+      if (!status?.loggedIn) {
+        await entry.page.close().catch(() => undefined);
+        this.channels.delete(channel);
+        await this.reauthenticate(signal);
+        entry = undefined;
+      }
+    }
     if (!entry || entry.page.isClosed()) {
       entry = await this.createChannelPage(model, signal);
       this.channels.set(channel, entry);
@@ -205,6 +214,17 @@ export class PuppeteerBrowserController {
     return this.authPromise;
   }
 
+  private async reauthenticate(signal?: AbortSignal): Promise<void> {
+    if (this.authPromise) {
+      await this.authPromise;
+      return;
+    }
+    this.authPromise = this.authenticate(signal).finally(() => {
+      this.authPromise = undefined;
+    });
+    await this.authPromise;
+  }
+
   private async authenticate(signal?: AbortSignal): Promise<void> {
     throwIfAborted(signal);
     await this.launch(true);
@@ -289,7 +309,8 @@ export class PuppeteerBrowserController {
     const status = await this.status(page);
     if (!status.loggedIn) {
       await page.close().catch(() => undefined);
-      throw new Error('Qwen Web session is no longer authenticated. Restart the request to sign in again.');
+      await this.reauthenticate(signal);
+      return this.createChannelPage(model, signal);
     }
     await this.selectModel(page, model);
     this.pageEpoch += 1;
