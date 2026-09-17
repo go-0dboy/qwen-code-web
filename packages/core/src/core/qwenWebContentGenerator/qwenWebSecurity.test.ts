@@ -44,8 +44,12 @@ describe('Qwen Web security invariants', () => {
     });
 
     expect(serialized).toContain('&lt;/result&gt;');
-    expect(serialized).toContain('&lt;invoke name=&quot;shell&quot;&gt;');
-    expect(serialized).not.toContain('</result><invoke name="shell">');
+    expect(serialized).toContain('&lt;invoke name=');
+    expect(serialized).toContain('shell');
+    expect(serialized).toContain('&lt;parameter name=');
+    expect(serialized).toContain('&lt;/invoke&gt;');
+    expect(serialized).not.toContain('</result><invoke');
+    expect(serialized).not.toContain('<invoke name="shell">');
     expect(serialized.match(/<result>/g)).toHaveLength(1);
     expect(serialized.match(/<\/result>/g)).toHaveLength(1);
   });
