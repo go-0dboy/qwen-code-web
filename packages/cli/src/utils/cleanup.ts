@@ -28,20 +28,11 @@ export function registerCleanup(
 const PER_CLEANUP_TIMEOUT_MS = 2_000;
 
 /**
- * Wall-clock ceiling for the whole cleanup pass. Pre-async-jsonl, sync
- * fs writes were inherently bounded by their syscall return; with the
- * write queue moved off-thread, an unbounded `await flush()` could now
- * hang exit indefinitely. This ceiling guarantees the process always
- * exits within a bounded time, even if a cleanup never resolves.
+ * Wall-clock ceiling for the whole cleanup pass. Caps the async cleanup chain
+ * so process exit stays bounded even if a resource refuses to settle.
  */
 const OVERALL_CLEANUP_TIMEOUT_MS = 5_000;
 
-/**
- * Awaits `promise`, but resolves to `undefined` if `ms` elapses first.
- * Rejection collapses to the same undefined resolution — caller treats
- * cleanup errors as best-effort. Timer is unrefed so it can't keep the
- * event loop alive on its own.
- */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(undefined), ms);
@@ -91,9 +82,22 @@ async function runExitCleanupPass(
         // Ignore errors during cleanup.
       }
     }
+
+    // Qwen Web owns a process-wide browser rather than a per-Config resource.
+    // Join it to the shared CLI exit chain instead of Config.shutdown(), which
+    // would let one daemon/ACP session kill Chromium used by another session.
+    // The import is intentionally deferred until exit and the called helper
+    // never creates the singleton, preserving lazy browser startup.
+    try {
+      const { closeQwenWebProcessResources } = await import(
+        '@qwen-code/qwen-code-core/core/qwenWebContentGenerator/lifecycle.js'
+      );
+      await withTimeout(closeQwenWebProcessResources(), perFn);
+    } catch (_) {
+      // Best-effort like the rest of the exit cleanup chain.
+    }
   })();
 
-  // clearTimeout when drain wins; unref keeps the handle from blocking exit.
   let wallClockTimer: NodeJS.Timeout | undefined;
   const wallClock = new Promise<void>((resolve) => {
     wallClockTimer = setTimeout(() => resolve(), overall);
@@ -104,18 +108,11 @@ async function runExitCleanupPass(
     await Promise.race([drain, wallClock]);
   } finally {
     if (wallClockTimer) clearTimeout(wallClockTimer);
-    cleanupFunctions.length = 0; // Clear the array
+    cleanupFunctions.length = 0;
   }
 }
 
-/**
- * Test-only: clear the registered cleanup functions array. Module-private
- * state otherwise leaks across vitest cases — the previous test isolation
- * via `global['cleanupFunctions']` was a no-op (the array isn't on global)
- * and only happened to work because `runExitCleanup` itself clears at the
- * end. Naming follows the `_reset*ForTest` convention from
- * d6485964c (paths, jsonl-utils, ripGrep).
- */
+/** Test-only: clear registered cleanup state between vitest cases. */
 export function _resetCleanupFunctionsForTest(): void {
   cleanupFunctions.length = 0;
   exitCleanupPromise = undefined;
