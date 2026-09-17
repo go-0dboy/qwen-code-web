@@ -10,7 +10,7 @@ import {
   QWEN_WEB_AUTH_DESCRIPTION,
   QWEN_WEB_AUTH_LABEL,
   buildQwenWebInstallPlan,
-} from './qwenWebAuth.js';
+} from './qwen-web-auth.js';
 
 describe('Qwen Web credentialless auth plan', () => {
   it('selects the built-in browser model without credentials', () => {

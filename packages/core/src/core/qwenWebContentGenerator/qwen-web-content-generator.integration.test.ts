@@ -9,11 +9,11 @@ import type { FunctionCall, Part } from '@google/genai';
 import type { Config } from '../../config/config.js';
 import { LlmChat, StreamEventType } from '../llm-chat.js';
 import type { ContentGeneratorConfig } from '../contentGenerator.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 import type {
   QwenWebBrowserServiceLike,
   QwenWebChannelSession,
-} from './browserService.js';
+} from './browser-service.js';
 import type { QwenWebTransportState } from './browser/types.js';
 
 const MODEL = 'qwen3.8-max';

@@ -4,13 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {
-  AuthType,
-  QWEN_WEB_DEFAULT_MODEL,
-  applyProviderInstallPlan,
-  type Config,
-  type ProviderInstallPlan,
-} from '@qwen-code/qwen-code-core';
+import type { Config } from '@qwen-code/qwen-code-core/config/config.js';
+import { QWEN_WEB_DEFAULT_MODEL } from '@qwen-code/qwen-code-core/models/index.js';
+import { applyProviderInstallPlan } from '@qwen-code/qwen-code-core/providers/install.js';
+import type { ProviderInstallPlan } from '@qwen-code/qwen-code-core/providers/types.js';
+import { AuthType } from '@qwen-code/qwen-code-core/utils/auth-type.js';
 import type { LoadedSettings } from '../../config/settings.js';
 import { createLoadedSettingsAdapter } from '../../config/loadedSettingsAdapter.js';
 

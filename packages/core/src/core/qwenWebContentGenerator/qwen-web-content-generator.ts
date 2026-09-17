@@ -22,7 +22,7 @@ import type {
 import {
   getQwenWebBrowserService,
   type QwenWebBrowserServiceLike,
-} from './browserService.js';
+} from './browser-service.js';
 import {
   QwenWebTransportResetError,
   transportEpochKey,
@@ -30,13 +30,13 @@ import {
 import {
   ConversationSynchronizer,
   type ConversationSyncInput,
-} from './conversationSynchronizer.js';
+} from './conversation-synchronizer.js';
 import {
   buildQwenWebDeltaPrompt,
   buildQwenWebReplayPrompt,
   qwenWebPromptSignature,
-} from './promptSerializer.js';
-import { createQwenWebGenerateContentResponse } from './responseFactory.js';
+} from './prompt-serializer.js';
+import { createQwenWebGenerateContentResponse } from './response-factory.js';
 
 function isContent(value: unknown): value is Content {
   return Boolean(

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   QwenWebBrowserService,
   type QwenWebBrowserController,
-} from './browserService.js';
+} from './browser-service.js';
 import type { QwenWebTransportState } from './browser/types.js';
 
 interface PendingSend {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConversationSynchronizer } from './conversationSynchronizer.js';
+import { ConversationSynchronizer } from './conversation-synchronizer.js';
 
 const user = (text: string) => ({ role: 'user', parts: [{ text }] });
 const model = (text: string) => ({ role: 'model', parts: [{ text }] });

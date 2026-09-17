@@ -9,9 +9,9 @@ import type {
   ContentGenerator,
   ContentGeneratorConfig,
 } from '../contentGenerator.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 
-export { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+export { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 
 export function createQwenWebContentGenerator(
   generatorConfig: ContentGeneratorConfig,

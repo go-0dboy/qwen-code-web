@@ -11,7 +11,7 @@ import {
   serializeQwenWebFunctionCall,
   serializeQwenWebFunctionResponse,
   type QwenWebHostTool,
-} from './toolProtocol.js';
+} from './tool-protocol.js';
 
 export interface QwenWebPromptContext {
   systemInstruction: unknown;

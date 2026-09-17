@@ -6,8 +6,8 @@
 
 import type { Config } from '../../config/config.js';
 import { describe, expect, it } from 'vitest';
-import type { QwenWebBrowserServiceLike } from './browserService.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+import type { QwenWebBrowserServiceLike } from './browser-service.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 
 class DirtyBrowserService implements QwenWebBrowserServiceLike {
   readonly prompts: string[] = [];

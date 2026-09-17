@@ -59,7 +59,7 @@ import {
   QWEN_WEB_AUTH_DESCRIPTION,
   QWEN_WEB_AUTH_LABEL,
   applyQwenWebAuth,
-} from '../auth/qwenWebAuth.js';
+} from '../auth/qwen-web-auth.js';
 import { toOriginalKey } from './key-map.js';
 import { isPrintableKeyInput } from './input-prompt-key.js';
 import { normalizePastedText } from './input-prompt-model.js';

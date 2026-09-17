@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   closeIfCreated: vi.fn(async () => undefined),
 }));
 
-vi.mock('./browserService.js', () => ({
+vi.mock('./browser-service.js', () => ({
   closeQwenWebBrowserServiceIfCreated: mocks.closeIfCreated,
 }));
 

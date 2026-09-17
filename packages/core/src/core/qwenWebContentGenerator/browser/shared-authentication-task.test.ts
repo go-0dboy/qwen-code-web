@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { SharedAuthenticationTask } from './sharedAuthenticationTask.js';
+import { SharedAuthenticationTask } from './shared-authentication-task.js';
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

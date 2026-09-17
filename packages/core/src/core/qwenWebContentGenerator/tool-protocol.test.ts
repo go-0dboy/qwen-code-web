@@ -3,7 +3,7 @@ import {
   extractQwenWebHostTools,
   serializeQwenWebFunctionCall,
   serializeQwenWebFunctionResponse,
-} from './toolProtocol.js';
+} from './tool-protocol.js';
 
 describe('Qwen Web tool protocol', () => {
   it('extracts host tool declarations from request config', () => {

@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { installQwenWebPageRuntime } from './pageRuntime.js';
+import { installQwenWebPageRuntime } from './page-runtime.js';
 import type { QwenWebPageBridge } from './types.js';
 
 const executablePath = [

@@ -22,7 +22,7 @@ import { useQwenAuth } from '../hooks/useQwenAuth.js';
 import { AuthState, MessageType } from '../types.js';
 import type { HistoryItemWithoutId } from '../types.js';
 import { t } from '../../i18n/index.js';
-import { applyQwenWebAuth } from './qwenWebAuth.js';
+import { applyQwenWebAuth } from './qwen-web-auth.js';
 
 /**
  * Normalize model IDs: split by comma, trim, deduplicate, remove empty.

@@ -9,10 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../../config/config.js';
 import type { ContentGeneratorConfig } from '../contentGenerator.js';
-import type { QwenWebBrowserServiceLike } from './browserService.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
-import { serializeQwenWebContent } from './promptSerializer.js';
-import { serializeQwenWebFunctionResponse } from './toolProtocol.js';
+import type { QwenWebBrowserServiceLike } from './browser-service.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
+import { serializeQwenWebContent } from './prompt-serializer.js';
+import { serializeQwenWebFunctionResponse } from './tool-protocol.js';
 
 const inertBrowser: QwenWebBrowserServiceLike = {
   async withChannel() {

@@ -9,8 +9,8 @@ import puppeteer, {
   type LaunchOptions,
   type Page,
 } from 'puppeteer-core';
-import { installQwenWebPageRuntime } from './pageRuntime.js';
-import { SharedAuthenticationTask } from './sharedAuthenticationTask.js';
+import { installQwenWebPageRuntime } from './page-runtime.js';
+import { SharedAuthenticationTask } from './shared-authentication-task.js';
 import {
   ensureQwenWebBrowserDirectories,
   resolveQwenWebBrowserExecutable,

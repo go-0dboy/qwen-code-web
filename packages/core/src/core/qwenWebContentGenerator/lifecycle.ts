@@ -12,7 +12,7 @@
  */
 export async function closeQwenWebProcessResources(): Promise<void> {
   const { closeQwenWebBrowserServiceIfCreated } = await import(
-    './browserService.js'
+    './browser-service.js'
   );
   await closeQwenWebBrowserServiceIfCreated();
 }

@@ -9,8 +9,8 @@ import { describe, expect, it } from 'vitest';
 import type {
   QwenWebBrowserServiceLike,
   QwenWebChannelSession,
-} from './browserService.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+} from './browser-service.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 
 class LifecycleBrowserService implements QwenWebBrowserServiceLike {
   readonly channels: string[] = [];

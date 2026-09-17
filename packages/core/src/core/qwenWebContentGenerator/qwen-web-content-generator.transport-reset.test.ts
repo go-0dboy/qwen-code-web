@@ -6,9 +6,9 @@
 
 import type { Config } from '../../config/config.js';
 import { describe, expect, it } from 'vitest';
-import type { QwenWebBrowserServiceLike } from './browserService.js';
+import type { QwenWebBrowserServiceLike } from './browser-service.js';
 import { QwenWebTransportResetError } from './browser/types.js';
-import { QwenWebContentGenerator } from './qwenWebContentGenerator.js';
+import { QwenWebContentGenerator } from './qwen-web-content-generator.js';
 
 class FakeBrowserService implements QwenWebBrowserServiceLike {
   readonly prompts: string[] = [];

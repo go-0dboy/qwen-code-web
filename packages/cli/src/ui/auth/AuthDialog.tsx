@@ -27,14 +27,14 @@ import {
   findExistingProviderModels,
   getDefaultModelIds,
 } from '@qwen-code/qwen-code-core/providers/provider-config.js';
-import { AuthType } from '@qwen-code/qwen-code-core';
+import { AuthType } from '@qwen-code/qwen-code-core/utils/auth-type.js';
 import type { ProviderConfig } from '@qwen-code/qwen-code-core/providers/types.js';
 import { useProviderSetupFlow } from './useProviderSetupFlow.js';
 import { ProviderSetupSteps } from './ProviderSetupSteps.js';
 import {
   QWEN_WEB_AUTH_DESCRIPTION,
   QWEN_WEB_AUTH_LABEL,
-} from './qwenWebAuth.js';
+} from './qwen-web-auth.js';
 
 // ---------------------------------------------------------------------------
 // Types

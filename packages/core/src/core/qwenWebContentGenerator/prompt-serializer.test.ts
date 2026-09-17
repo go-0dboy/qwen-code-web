@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildQwenWebReplayPrompt,
   serializeQwenWebContent,
-} from './promptSerializer.js';
+} from './prompt-serializer.js';
 
 describe('Qwen Web prompt serializer', () => {
   it('includes the host protocol, system instruction, and canonical user turn', () => {
