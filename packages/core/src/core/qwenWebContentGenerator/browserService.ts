@@ -65,40 +65,73 @@ export class QwenWebBrowserService implements QwenWebBrowserServiceLike {
     operation: (session: QwenWebChannelSession) => Promise<T>,
   ): Promise<T> {
     if (this.closed) throw new Error('Qwen Web browser service is closed.');
+
     let cancelled = signal?.aborted ?? false;
+    let active = false;
+    let sendInFlight = false;
+    let stopStarted = false;
+    let rejectCancellation!: (error: Error) => void;
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      rejectCancellation = reject;
+    });
+
     const onAbort = () => {
       cancelled = true;
-      // Cancellation is intentionally out-of-band. It never waits behind the
-      // per-channel queue, so Ctrl+C can press Stop while the request owns it.
-      void this.controller.stopGeneration(channel);
+      // A queued request does not own the channel and must never stop the
+      // request ahead of it. Once this request owns an active send, Stop is
+      // issued out-of-band exactly once and cancellation wins the send race.
+      if (!active || !sendInFlight || stopStarted) return;
+      stopStarted = true;
+      void this.controller
+        .stopGeneration(channel)
+        .finally(() => rejectCancellation(abortError()));
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
       return await this.enqueue(channel, async () => {
         if (cancelled) throw abortError();
-        const session: QwenWebChannelSession = {
-          prepare: async (model) => {
-            if (cancelled) throw abortError();
-            return this.controller.prepareChannel(channel, model, signal);
-          },
-          reset: async (model) => {
-            if (cancelled) throw abortError();
-            return this.controller.newConversation(channel, model, signal);
-          },
-          send: async (prompt, model) => {
-            if (cancelled) throw abortError();
-            const text = await this.controller.sendPrompt(
-              channel,
-              prompt,
-              model,
-              signal,
-            );
-            if (cancelled) throw abortError();
-            return text;
-          },
-        };
-        return operation(session);
+        active = true;
+        try {
+          const session: QwenWebChannelSession = {
+            prepare: async (model) => {
+              if (cancelled) throw abortError();
+              return this.controller.prepareChannel(channel, model, signal);
+            },
+            reset: async (model) => {
+              if (cancelled) throw abortError();
+              return this.controller.newConversation(channel, model, signal);
+            },
+            send: async (prompt, model) => {
+              if (cancelled) throw abortError();
+              sendInFlight = true;
+              try {
+                // BrowserService owns cancellation for an active send. Passing
+                // the same signal into the controller as well would register a
+                // second Stop path and can stop twice.
+                const response = this.controller.sendPrompt(
+                  channel,
+                  prompt,
+                  model,
+                  undefined,
+                );
+                const text = signal
+                  ? await Promise.race([response, cancellation])
+                  : await response;
+                if (cancelled) throw abortError();
+                return text;
+              } catch (error) {
+                if (cancelled) throw abortError();
+                throw error;
+              } finally {
+                sendInFlight = false;
+              }
+            },
+          };
+          return await operation(session);
+        } finally {
+          active = false;
+        }
       });
     } finally {
       signal?.removeEventListener('abort', onAbort);
