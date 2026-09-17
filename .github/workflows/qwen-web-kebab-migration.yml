@@ -126,3 +126,5 @@ jobs:
           git add -A
           git commit -m 'refactor(qwen-web): align filenames with repository conventions'
           git push origin HEAD:feat/qwen-web-browser-provider
+
+# Retry trigger after fixing the integration harness prefer-const violation.
