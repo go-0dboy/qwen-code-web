@@ -22,7 +22,7 @@ export interface QwenWebPreparedPrompt {
 }
 
 export interface QwenWebPageBridge {
-  getStatus(): QwenWebRuntimeStatus;
+  getStatus(): Promise<QwenWebRuntimeStatus>;
   selectModel(model: string): Promise<string>;
   preparePrompt(prompt: string): Promise<QwenWebPreparedPrompt>;
   waitForResponse(prepared: QwenWebPreparedPrompt): Promise<string>;

@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, {
+  type Browser,
+  type LaunchOptions,
+  type Page,
+} from 'puppeteer-core';
 import { installQwenWebPageRuntime } from './pageRuntime.js';
 import {
   ensureQwenWebBrowserDirectories,
@@ -18,6 +22,7 @@ import type {
 } from './types.js';
 
 const QWEN_WEB_URL = 'https://chat.qwen.ai/';
+const QWEN_WEB_PROTOCOL_TIMEOUT_MS = 30 * 60_000;
 
 interface ChannelPage {
   page: Page;
@@ -26,6 +31,46 @@ interface ChannelPage {
 }
 
 type BrowserWindow = Window & { __qwenCodeWebBridge?: QwenWebPageBridge };
+
+export function qwenWebModelLabelMatches(
+  selected: string,
+  requested: string,
+): boolean {
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const selectedNormalized = normalize(selected);
+  const requestedNormalized = normalize(requested);
+  return (
+    selectedNormalized === requestedNormalized ||
+    selectedNormalized.includes(requestedNormalized)
+  );
+}
+
+export function buildQwenWebBrowserLaunchOptions(
+  executablePath: string,
+  userDataDir: string,
+  headless: boolean,
+): LaunchOptions {
+  return {
+    executablePath,
+    userDataDir,
+    headless,
+    defaultViewport: null,
+    protocolTimeout: QWEN_WEB_PROTOCOL_TIMEOUT_MS,
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    handleSIGHUP: false,
+    args: [
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ],
+  };
+}
 
 function abortError(): Error {
   const error = new Error('Qwen Web browser request was aborted.');
@@ -257,17 +302,13 @@ export class PuppeteerBrowserController {
     if (this.browser) await this.closeBrowserOnly();
     const paths = await ensureQwenWebBrowserDirectories();
     const executablePath = await resolveQwenWebBrowserExecutable();
-    const browser = await puppeteer.launch({
-      executablePath,
-      userDataDir: paths.profileDir,
-      headless,
-      args: [
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-background-networking',
-        '--disable-component-update',
-      ],
-    });
+    const browser = await puppeteer.launch(
+      buildQwenWebBrowserLaunchOptions(
+        executablePath,
+        paths.profileDir,
+        headless,
+      ),
+    );
     this.browser = browser;
     this.browserIsHeadless = headless;
     this.browserEpoch += 1;
@@ -331,8 +372,7 @@ export class PuppeteerBrowserController {
       if (!bridge) throw new Error('Qwen Web page runtime is not installed.');
       return bridge.selectModel(requested);
     }, model);
-    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    if (normalize(selected) !== normalize(model)) {
+    if (!qwenWebModelLabelMatches(selected, model)) {
       throw new Error(
         `Qwen Web model mismatch: requested '${model}', selected '${selected}'.`,
       );

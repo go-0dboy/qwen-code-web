@@ -58,6 +58,7 @@ function browserCandidates(): string[] {
 
   if (process.platform === 'darwin') {
     return [
+      '/Applications/Yandex Browser.app/Contents/MacOS/Yandex Browser',
       '/Applications/Yandex.app/Contents/MacOS/Yandex',
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/Applications/Chromium.app/Contents/MacOS/Chromium',

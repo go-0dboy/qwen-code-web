@@ -10,15 +10,29 @@ import type {
   QwenWebRuntimeStatus,
 } from './types.js';
 
+export interface QwenWebPageRuntimeOptions {
+  loginStabilityMs?: number;
+  loginDetectionTimeoutMs?: number;
+}
+
 /**
  * Installs the complete Qwen Web DOM adapter in the page. The function is
  * deliberately self-contained: Puppeteer serializes it with Function#toString
  * for evaluateOnNewDocument/evaluate, so it must not close over Node values.
  */
-export function installQwenWebPageRuntime(): void {
+export function installQwenWebPageRuntime(
+  options: QwenWebPageRuntimeOptions = {},
+): void {
   type BridgeWindow = Window & { __qwenCodeWebBridge?: QwenWebPageBridge };
   const bridgeWindow = window as BridgeWindow;
   if (bridgeWindow.__qwenCodeWebBridge) return;
+
+  const loginStabilityMs = Math.max(0, options.loginStabilityMs ?? 3_000);
+  const loginDetectionTimeoutMs = Math.max(
+    loginStabilityMs,
+    options.loginDetectionTimeoutMs ?? 8_000,
+  );
+  let inferredAuthenticated = false;
 
   const inputSelectors = [
     'textarea.message-input-textarea',
@@ -77,6 +91,15 @@ export function installQwenWebPageRuntime(): void {
   const normalizeText = (value: string) => value.replace(/\s+/g, ' ').trim();
   const normalizeModel = (value: string) =>
     value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const modelMatches = (candidate: string | undefined, requested: string) => {
+    if (!candidate) return false;
+    const candidateNormalized = normalizeModel(candidate);
+    const requestedNormalized = normalizeModel(requested);
+    return (
+      candidateNormalized === requestedNormalized ||
+      candidateNormalized.startsWith(requestedNormalized)
+    );
+  };
 
   const inputElement = (): HTMLElement | undefined => findVisible(inputSelectors);
 
@@ -87,29 +110,28 @@ export function installQwenWebPageRuntime(): void {
   };
 
   const responseElements = (): HTMLElement[] => {
-    const seen = new Set<Element>();
-    const result: HTMLElement[] = [];
     for (const selector of responseSelectors) {
-      for (const element of Array.from(document.querySelectorAll(selector))) {
-        if (!seen.has(element) && isVisible(element)) {
-          seen.add(element);
-          result.push(element);
-        }
-      }
+      const values = Array.from(document.querySelectorAll(selector)).filter(
+        isVisible,
+      ) as HTMLElement[];
+      if (values.length > 0) return values;
     }
-    return result;
+    return [];
   };
 
   const cleanResponseText = (element: HTMLElement): string => {
     const clone = element.cloneNode(true) as HTMLElement;
     for (const removable of Array.from(
       clone.querySelectorAll(
-        'button,svg,[aria-label*="copy" i],[class*="copy" i],[class*="line-number" i]',
+        'button,svg,[aria-hidden="true"],[data-line-number],[aria-label*="copy" i],[class*="copy" i],[class*="line-number" i],[class*="lineNumber" i]',
       ),
     )) {
       removable.remove();
     }
-    return normalizeText(clone.innerText || clone.textContent || '');
+    return (clone.innerText || clone.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n?/g, '\n')
+      .trim();
   };
 
   const currentResponse = (): { count: number; text: string } => {
@@ -136,69 +158,144 @@ export function installQwenWebPageRuntime(): void {
     });
   };
 
-  const comparisonVisible = (): boolean =>
-    Boolean(
+  const detectLoggedIn = (): boolean | undefined => {
+    if (/\/(?:login|signin|auth)(?:\/|$)/i.test(window.location.pathname)) {
+      return false;
+    }
+    if (visibleLoginControl()) return false;
+    const account = findVisible([
+      '[class*="avatar" i]',
+      'img[alt*="avatar" i]',
+      '[aria-label*="profile" i]',
+      '[aria-label*="account" i]',
+      '[data-testid*="profile" i]',
+    ]);
+    if (account) return true;
+    if (inferredAuthenticated && inputElement()) return true;
+    return undefined;
+  };
+
+  const waitForLoginState = async (): Promise<boolean> => {
+    const startedAt = Date.now();
+    const deadline = startedAt + loginDetectionTimeoutMs;
+    let state = detectLoggedIn();
+    while (state === undefined && Date.now() < deadline) {
+      if (
+        inputElement() &&
+        !visibleLoginControl() &&
+        Date.now() - startedAt >= loginStabilityMs
+      ) {
+        inferredAuthenticated = true;
+        return true;
+      }
+      await sleep(250);
+      state = detectLoggedIn();
+    }
+    return state ?? false;
+  };
+
+  const comparisonVisible = (): boolean => {
+    if (
       findVisible([
         '[class*="comparison" i]',
         '[data-testid*="comparison" i]',
         '[class*="compare" i][class*="response" i]',
-      ]),
+      ])
+    ) {
+      return true;
+    }
+    const text = normalizeText(document.body?.innerText ?? '').slice(-12_000);
+    return (
+      /Which response do you prefer\?.*Choose one.*continue/i.test(text) ||
+      /Какой ответ вы предпочитаете\?.*Выберите один.*продолж/i.test(text) ||
+      /请选择.*(?:回答|回复).*(?:继续|提交)/i.test(text)
     );
+  };
 
   const resolveComparison = (): boolean => {
     if (!comparisonVisible()) return false;
-    const choicePattern = /^(keep|choose|continue|use this|accept|select)/i;
-    const button = Array.from(document.querySelectorAll('button')).find(
-      (element) =>
-        isVisible(element) &&
-        choicePattern.test(normalizeText(element.textContent ?? '')),
+    const controls = Array.from(
+      document.querySelectorAll('button,[role="button"],label'),
+    ).filter(isVisible) as HTMLElement[];
+    const skipPattern =
+      /^(skip|пропустить|не могу выбрать|оба одинаковы|none|не выбирать)$/i;
+    const choicePattern =
+      /^(?:Response|Answer|Option|Ответ|Вариант)\s*[12]$/i;
+    const candidates = controls.filter((element) =>
+      choicePattern.test(normalizeText(element.textContent ?? '')),
     );
-    if (button instanceof HTMLButtonElement) {
-      button.click();
-      return true;
-    }
-    return false;
+    const choice =
+      controls.find((element) =>
+        skipPattern.test(normalizeText(element.textContent ?? '')),
+      ) ??
+      candidates[1] ??
+      candidates[0];
+    if (!(choice instanceof HTMLElement)) return false;
+    choice.focus();
+    choice.click();
+    return true;
   };
 
-  const nativeToolVisible = (): boolean =>
-    Boolean(
-      findVisible([
-        '[data-testid*="web-search" i]',
-        '[data-testid*="tool-call" i]',
-        '[class*="web-search" i]',
-        '[class*="tool-call" i]',
-        '[class*="toolCall"]',
-      ]),
-    );
+  const nativeToolVisible = (): boolean => {
+    const latest = responseElements().at(-1);
+    if (!latest) return false;
+    return Array.from(
+      latest.querySelectorAll(
+        '[data-testid*="web-search" i],[data-testid*="tool-call" i],[class*="web-search" i],[class*="tool-call" i],[class*="toolCall"]',
+      ),
+    ).some(isVisible);
+  };
 
   const providerError = (): string | undefined => {
+    const bodyText = normalizeText(document.body?.innerText ?? '').slice(-9_000);
+    const nativeTool = bodyText.match(
+      /Tool\s+([A-Za-z0-9_.-]+)\s+does not exists?\./i,
+    );
+    if (nativeTool) return `Qwen native-tool collision: ${nativeTool[1]}`;
+    if (/Oops! There was an issue connecting to Qwen3[.\s-]*8-Max/i.test(bodyText)) {
+      return 'Qwen3.8-Max connection error';
+    }
+    if (/An unexpected error occurred\. Please try again later/i.test(bodyText)) {
+      return 'Qwen unexpected connection error';
+    }
+    if (/The request is ended!?/i.test(bodyText) && /The chat is in progress!?/i.test(bodyText)) {
+      return 'Qwen request/chat state conflict';
+    }
+    if (/The request is ended!?/i.test(bodyText)) {
+      return 'Qwen request ended unexpectedly';
+    }
+    if (/The chat is in progress!?/i.test(bodyText)) {
+      return 'Qwen chat is stuck in progress';
+    }
+
     const alert = findVisible([
       '[role="alert"]',
       '[class*="error-message" i]',
       '[class*="request-error" i]',
     ]);
     const alertText = normalizeText(alert?.textContent ?? '');
-    if (alertText) return alertText;
-
-    const latest = currentResponse().text;
-    if (/tool\s+.+\s+does not exist/i.test(latest)) return latest;
-    if (/qwen3\.8[- ]?max.+connection error/i.test(latest)) return latest;
-    return undefined;
+    return alertText || undefined;
   };
 
   const retryControl = (): HTMLButtonElement | undefined => {
-    const pattern = /(retry|regenerate|try again|重新生成|重试)/i;
-    return Array.from(document.querySelectorAll('button')).find(
+    const pattern =
+      /(retry|regenerate|generate again|try again|refresh|redo|重新生成|重试|повтор(?:ить)?|сгенерировать заново)/i;
+    return Array.from(
+      document.querySelectorAll('button,[role="button"]'),
+    ).find(
       (element): element is HTMLButtonElement =>
         element instanceof HTMLButtonElement &&
         !element.disabled &&
+        element.getAttribute('aria-disabled') !== 'true' &&
         isVisible(element) &&
         pattern.test(normalizeText(element.textContent ?? '')),
     );
   };
 
   const readCurrentModel = (): string | undefined => {
-    const candidates = Array.from(document.querySelectorAll('button,[role="button"]'));
+    const candidates = Array.from(
+      document.querySelectorAll('button,[role="button"]'),
+    );
     const current = candidates.find((element) => {
       if (!isVisible(element)) return false;
       const text = normalizeText(element.textContent ?? '');
@@ -260,11 +357,10 @@ export function installQwenWebPageRuntime(): void {
     );
   };
 
-  const getStatus = (): QwenWebRuntimeStatus => {
+  const getStatus = async (): Promise<QwenWebRuntimeStatus> => {
     const response = currentResponse();
-    const input = inputElement();
     return {
-      loggedIn: Boolean(input) && !visibleLoginControl(),
+      loggedIn: await waitForLoginState(),
       generating: Boolean(activeStopButton()),
       model: readCurrentModel(),
       responseCount: response.count,
@@ -276,40 +372,54 @@ export function installQwenWebPageRuntime(): void {
   };
 
   const selectModel = async (requestedModel: string): Promise<string> => {
-    const requested = normalizeModel(requestedModel);
     const existing = readCurrentModel();
-    if (existing && normalizeModel(existing) === requested) return existing;
+    if (modelMatches(existing, requestedModel)) return existing!;
 
-    const trigger = Array.from(document.querySelectorAll('button,[role="button"]')).find(
-      (element) => {
-        if (!isVisible(element)) return false;
-        const text = normalizeText(element.textContent ?? '');
-        return /qwen|model/i.test(text);
-      },
-    );
+    const trigger = Array.from(
+      document.querySelectorAll('button,[role="button"]'),
+    )
+      .filter(isVisible)
+      .filter((element) =>
+        /qwen|model/i.test(normalizeText(element.textContent ?? '')),
+      )
+      .sort(
+        (a, b) =>
+          normalizeText(a.textContent ?? '').length -
+          normalizeText(b.textContent ?? '').length,
+      )[0];
     if (trigger instanceof HTMLElement) trigger.click();
-    await sleep(300);
+    await sleep(500);
 
     const choices = Array.from(
-      document.querySelectorAll('button,[role="option"],[role="menuitem"],[role="button"]'),
-    );
-    const exact = choices.find((element) => {
-      if (!isVisible(element)) return false;
-      return normalizeModel(normalizeText(element.textContent ?? '')) === requested;
-    });
-    if (!(exact instanceof HTMLElement)) {
-      throw new Error(`Requested Qwen Web model '${requestedModel}' is not available in the model selector.`);
+      document.querySelectorAll(
+        'button,[role="option"],[role="menuitem"],[role="button"]',
+      ),
+    )
+      .filter(isVisible)
+      .filter((element) =>
+        modelMatches(normalizeText(element.textContent ?? ''), requestedModel),
+      )
+      .sort(
+        (a, b) =>
+          normalizeText(a.textContent ?? '').length -
+          normalizeText(b.textContent ?? '').length,
+      );
+    const choice = choices[0];
+    if (!(choice instanceof HTMLElement)) {
+      throw new Error(
+        `Requested Qwen Web model '${requestedModel}' is not available in the model selector.`,
+      );
     }
-    exact.click();
+    choice.click();
     await sleep(500);
 
     const selected = readCurrentModel();
-    if (!selected || normalizeModel(selected) !== requested) {
+    if (!modelMatches(selected, requestedModel)) {
       throw new Error(
         `Qwen Web did not confirm model '${requestedModel}' after selection. Current model: '${selected ?? 'unknown'}'.`,
       );
     }
-    return selected;
+    return selected!;
   };
 
   const preparePrompt = async (
@@ -320,7 +430,9 @@ export function installQwenWebPageRuntime(): void {
 
     const input = inputElement();
     if (!input) {
-      throw new Error('Qwen Web prompt input was not found. The page may require login or its DOM changed.');
+      throw new Error(
+        'Qwen Web prompt input was not found. The page may require login or its DOM changed.',
+      );
     }
     const existing = inputText(input).trim();
     if (existing && existing !== prompt.trim()) {
@@ -337,7 +449,7 @@ export function installQwenWebPageRuntime(): void {
     if (send instanceof HTMLButtonElement && !send.disabled) send.click();
     else if (send instanceof HTMLElement) send.click();
 
-    const acceptedDeadline = Date.now() + 1_500;
+    const acceptedDeadline = Date.now() + 3_000;
     while (Date.now() < acceptedDeadline) {
       if (promptAccepted(input, baseline)) {
         return {
@@ -380,7 +492,9 @@ export function installQwenWebPageRuntime(): void {
       const inspect = () => {
         if (settled) return;
         if (Date.now() - started > 10 * 60_000) {
-          finish(() => reject(new Error('Timed out waiting for Qwen Web response.')));
+          finish(() =>
+            reject(new Error('Timed out waiting for Qwen Web response.')),
+          );
           return;
         }
 
@@ -402,7 +516,7 @@ export function installQwenWebPageRuntime(): void {
         const response = currentResponse();
         const advanced =
           response.count > prepared.baselineCount ||
-          (response.text && response.text !== prepared.baselineText);
+          Boolean(response.text && response.text !== prepared.baselineText);
         if (!advanced) return;
 
         if (nativeToolVisible()) {
@@ -425,7 +539,9 @@ export function installQwenWebPageRuntime(): void {
         if (!latestText) return;
 
         const stableFor = Date.now() - stableSince;
-        const hasClosedInvoke = /<invoke\b[^>]*>[\s\S]*?<\/invoke>/i.test(latestText);
+        const hasClosedInvoke = /<invoke\b[^>]*>[\s\S]*?<\/invoke>/i.test(
+          latestText,
+        );
         const requiredStableMs = hasClosedInvoke ? 500 : 1_500;
         if (stableFor >= requiredStableMs) {
           finish(() => resolve(latestText));
