@@ -25,20 +25,31 @@ type BrowserWindow = Window & { __qwenCodeWebBridge?: QwenWebPageBridge };
 describeWithBrowser('Qwen Web page runtime DOM adapter', () => {
   let browser: Browser;
 
-  beforeAll(async () => {
-    browser = await puppeteer.launch({
-      executablePath: executablePath!,
-      headless: true,
-      handleSIGINT: false,
-      handleSIGTERM: false,
-      handleSIGHUP: false,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-  });
+  beforeAll(
+    async () => {
+      browser = await puppeteer.launch({
+        executablePath: executablePath!,
+        headless: true,
+        protocolTimeout: 30_000,
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+        ],
+      });
+    },
+    60_000,
+  );
 
-  afterAll(async () => {
-    await browser?.close();
-  });
+  afterAll(
+    async () => {
+      await browser?.close();
+    },
+    30_000,
+  );
 
   async function runtimePage(html: string): Promise<Page> {
     const page = await browser.newPage();
