@@ -10,6 +10,7 @@ import puppeteer, {
   type Page,
 } from 'puppeteer-core';
 import { installQwenWebPageRuntime } from './pageRuntime.js';
+import { SharedAuthenticationTask } from './sharedAuthenticationTask.js';
 import {
   ensureQwenWebBrowserDirectories,
   resolveQwenWebBrowserExecutable,
@@ -104,7 +105,10 @@ export class PuppeteerBrowserController {
   private browserEpoch = 0;
   private pageEpoch = 0;
   private channels = new Map<string, ChannelPage>();
-  private authPromise?: Promise<void>;
+  private readonly authentication = new SharedAuthenticationTask(
+    (signal) => this.authenticate(signal),
+    () => this.closeBrowserOnly(),
+  );
   private shuttingDown = false;
 
   async prepareChannel(
@@ -283,49 +287,46 @@ export class PuppeteerBrowserController {
     if (this.browser && this.browserIsHeadless && !this.browser.process()?.killed) {
       return;
     }
-    this.authPromise ??= this.authenticate(signal).finally(() => {
-      this.authPromise = undefined;
-    });
-    return this.authPromise;
+    await this.authentication.wait(signal);
   }
 
   private async reauthenticate(signal?: AbortSignal): Promise<void> {
-    if (this.authPromise) {
-      await this.authPromise;
-      return;
-    }
-    this.authPromise = this.authenticate(signal).finally(() => {
-      this.authPromise = undefined;
-    });
-    await this.authPromise;
+    await this.authentication.wait(signal);
   }
 
-  private async authenticate(signal?: AbortSignal): Promise<void> {
-    throwIfAborted(signal);
-    await this.launch(true);
-    let page = await this.createPage(signal);
-    let status = await this.status(page);
-    if (status.loggedIn) {
-      await page.close().catch(() => undefined);
-      return;
-    }
-
-    await this.closeBrowserOnly();
-    await this.launch(false);
-    page = await this.createPage(signal);
-    process.stderr.write(
-      '\nQwen Web login required. Complete sign-in in the browser window; Qwen Code will close it and continue headless after login.\n',
-    );
-
-    while (true) {
+  private async authenticate(signal: AbortSignal): Promise<void> {
+    try {
       throwIfAborted(signal);
-      status = await this.status(page);
-      if (status.loggedIn) break;
-      await delay(750, signal);
-    }
+      await this.launch(true);
+      let page = await this.createPage(signal);
+      let status = await this.status(page);
+      if (status.loggedIn) {
+        await page.close().catch(() => undefined);
+        return;
+      }
 
-    await this.closeBrowserOnly();
-    await this.launch(true);
+      await this.closeBrowserOnly();
+      await this.launch(false);
+      page = await this.createPage(signal);
+      process.stderr.write(
+        '\nQwen Web login required. Complete sign-in in the browser window; Qwen Code will close it and continue headless after login.\n',
+      );
+
+      while (true) {
+        throwIfAborted(signal);
+        status = await this.status(page);
+        if (status.loggedIn) break;
+        await delay(750, signal);
+      }
+
+      await this.closeBrowserOnly();
+      await this.launch(true);
+    } catch (error) {
+      if (signal.aborted) {
+        await this.closeBrowserOnly();
+      }
+      throw error;
+    }
   }
 
   private async launch(headless: boolean): Promise<void> {
