@@ -1,0 +1,246 @@
+name: Qwen Web Hardening Patch
+
+on:
+  push:
+    branches:
+      - feat/qwen-web-browser-provider
+    paths:
+      - '.github/workflows/qwen-web-hardening-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply browser lifecycle and cancellation hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          controller = Path('packages/core/src/core/qwenWebContentGenerator/browser/controller.ts')
+          text = controller.read_text(encoding='utf-8')
+
+          old = """      await this.closeBrowserOnly();
+      await this.launch(true);
+    } catch (error) {
+      if (signal.aborted) {
+        await this.closeBrowserOnly();
+      }
+      throw error;
+    }
+"""
+          new = """      await this.closeBrowserOnly();
+      await this.launch(true);
+      process.stderr.write(
+        '\\nLogin successful.\\nBrowser returned to background mode.\\n',
+      );
+    } catch (error) {
+      await this.closeBrowserOnly();
+      throw error;
+    }
+"""
+          if old not in text:
+              raise SystemExit('authenticate cleanup pattern not found')
+          text = text.replace(old, new, 1)
+
+          old = """    const page = await browser.newPage();
+    await page.evaluateOnNewDocument(installQwenWebPageRuntime);
+    await page.goto(QWEN_WEB_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60_000,
+    });
+    await page.evaluate(installQwenWebPageRuntime);
+    return page;
+"""
+          new = """    const page = await browser.newPage();
+    try {
+      await page.evaluateOnNewDocument(installQwenWebPageRuntime);
+      await page.goto(QWEN_WEB_URL, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+      await page.evaluate(installQwenWebPageRuntime);
+      return page;
+    } catch (error) {
+      if (!page.isClosed()) await page.close().catch(() => undefined);
+      throw error;
+    }
+"""
+          if old not in text:
+              raise SystemExit('createPage cleanup pattern not found')
+          text = text.replace(old, new, 1)
+
+          old = """    const page = await this.createPage(signal);
+    const status = await this.status(page);
+    if (!status.loggedIn) {
+      await page.close().catch(() => undefined);
+      await this.reauthenticate(signal);
+      return this.createChannelPage(model, signal);
+    }
+    await this.selectModel(page, model);
+    this.pageEpoch += 1;
+    return { page, pageEpoch: this.pageEpoch, model };
+"""
+          new = """    const page = await this.createPage(signal);
+    try {
+      const status = await this.status(page);
+      if (!status.loggedIn) {
+        await page.close().catch(() => undefined);
+        await this.reauthenticate(signal);
+        return this.createChannelPage(model, signal);
+      }
+      await this.selectModel(page, model);
+      this.pageEpoch += 1;
+      return { page, pageEpoch: this.pageEpoch, model };
+    } catch (error) {
+      if (!page.isClosed()) await page.close().catch(() => undefined);
+      throw error;
+    }
+"""
+          if old not in text:
+              raise SystemExit('createChannelPage cleanup pattern not found')
+          controller.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          runtime = Path('packages/core/src/core/qwenWebContentGenerator/browser/page-runtime.ts')
+          text = runtime.read_text(encoding='utf-8')
+          old = """export interface QwenWebPageRuntimeOptions {
+  loginStabilityMs?: number;
+  loginDetectionTimeoutMs?: number;
+}
+"""
+          new = """export interface QwenWebPageRuntimeOptions {
+  loginStabilityMs?: number;
+  loginDetectionTimeoutMs?: number;
+  stopAppearanceTimeoutMs?: number;
+}
+"""
+          if old not in text:
+              raise SystemExit('runtime options pattern not found')
+          text = text.replace(old, new, 1)
+
+          old = """  const loginDetectionTimeoutMs = Math.max(
+    loginStabilityMs,
+    options.loginDetectionTimeoutMs ?? 8_000,
+  );
+  let inferredAuthenticated = false;
+"""
+          new = """  const loginDetectionTimeoutMs = Math.max(
+    loginStabilityMs,
+    options.loginDetectionTimeoutMs ?? 8_000,
+  );
+  const stopAppearanceTimeoutMs = Math.max(
+    0,
+    options.stopAppearanceTimeoutMs ?? 3_500,
+  );
+  let inferredAuthenticated = false;
+"""
+          if old not in text:
+              raise SystemExit('runtime timeout pattern not found')
+          text = text.replace(old, new, 1)
+
+          old = """  const stopGeneration = async (): Promise<void> => {
+    const stop = activeStopButton();
+    if (stop) stop.click();
+    const deadline = Date.now() + 10_000;
+    while (activeStopButton()) {
+      if (Date.now() > deadline) {
+        throw new Error('Qwen Web did not stop generation after cancellation.');
+      }
+      await sleep(100);
+    }
+  };
+"""
+          new = """  const stopGeneration = async (): Promise<void> => {
+    const appearanceDeadline = Date.now() + stopAppearanceTimeoutMs;
+    let stop = activeStopButton();
+    while (!stop && Date.now() < appearanceDeadline) {
+      await sleep(50);
+      stop = activeStopButton();
+    }
+    if (stop) stop.click();
+
+    const deadline = Date.now() + 10_000;
+    while (activeStopButton()) {
+      if (Date.now() > deadline) {
+        throw new Error('Qwen Web did not stop generation after cancellation.');
+      }
+      await sleep(100);
+    }
+  };
+"""
+          if old not in text:
+              raise SystemExit('stopGeneration pattern not found')
+          runtime.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('packages/core/src/core/qwenWebContentGenerator/browser/page-runtime.browser.test.ts')
+          text = test.read_text(encoding='utf-8')
+          old = """      loginStabilityMs: 0,
+      loginDetectionTimeoutMs: 50,
+"""
+          new = """      loginStabilityMs: 0,
+      loginDetectionTimeoutMs: 50,
+      stopAppearanceTimeoutMs: 500,
+"""
+          if old not in text:
+              raise SystemExit('runtime test options pattern not found')
+          text = text.replace(old, new, 1)
+
+          marker = """  it('does not return a closed invoke while the Stop control is still active', async () => {
+"""
+          if marker not in text:
+              raise SystemExit('test insertion marker not found')
+          addition = """  it('waits for a late Stop control before cancellation returns', async () => {
+    const page = await runtimePage(`
+      <textarea style=\"width:200px;height:40px\"></textarea>
+    `);
+
+    const result = await page.evaluate(async () => {
+      const bridge = (window as BrowserWindow).__qwenCodeWebBridge!;
+      window.setTimeout(() => {
+        const stop = document.createElement('button');
+        stop.className = 'stop-button';
+        stop.style.width = '100px';
+        stop.style.height = '30px';
+        stop.textContent = 'Stop';
+        stop.addEventListener('click', () => stop.remove());
+        document.body.appendChild(stop);
+      }, 100);
+      const started = Date.now();
+      await bridge.stopGeneration();
+      return {
+        elapsedMs: Date.now() - started,
+        stopStillPresent: Boolean(document.querySelector('.stop-button')),
+      };
+    });
+
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(75);
+    expect(result.stopStillPresent).toBe(false);
+    await page.close();
+  });
+
+"""
+          text = text.replace(marker, addition + marker, 1)
+          test.write_text(text, encoding='utf-8')
+          PY
+          if git diff --name-only | grep -q '^.github/workflows/'; then
+            echo 'Hardening patch unexpectedly changed a workflow file.' >&2
+            exit 1
+          fi
+      - name: Commit hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'go-0dboy'
+          git config user.email '84291994+go-0dboy@users.noreply.github.com'
+          git add packages/core/src/core/qwenWebContentGenerator/browser/controller.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/page-runtime.ts \
+                  packages/core/src/core/qwenWebContentGenerator/browser/page-runtime.browser.test.ts
+          git commit --no-verify -m 'fix(qwen-web): harden cancellation and browser cleanup'
+          git push origin HEAD:feat/qwen-web-browser-provider
