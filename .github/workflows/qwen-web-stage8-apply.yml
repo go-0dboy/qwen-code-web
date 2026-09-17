@@ -24,11 +24,20 @@ jobs:
           from pathlib import Path
           p = Path('.github/scripts/apply_qwen_web_stage8.py')
           text = p.read_text()
-          old = '    if count != 1:\n        raise SystemExit(\n            f"{path}: expected one anchor, found {count}: {old[:80]!r}"\n        )'
-          new = '    if count < 1:\n        raise SystemExit(\n            f"{path}: anchor not found: {old[:80]!r}"\n        )'
-          if old not in text:
+          old_guard = '    if count != 1:\n        raise SystemExit(\n            f"{path}: expected one anchor, found {count}: {old[:80]!r}"\n        )'
+          new_guard = '    if count < 1:\n        raise SystemExit(\n            f"{path}: anchor not found: {old[:80]!r}"\n        )'
+          if old_guard not in text:
               raise SystemExit('replace_one guard anchor not found')
-          p.write_text(text.replace(old, new, 1))
+          text = text.replace(old_guard, new_guard, 1)
+          obsolete = r'''replace_one(
+              "packages/cli/src/ui/auth/useAuth.ts",
+              "      handleProviderSubmit,\n      handleQwenWebSubmit,\n      openAuthDialog,\n      cancelAuthentication,\n    ],",
+              "      handleProviderSubmit,\n      handleQwenWebSubmit,\n      openAuthDialog,\n      cancelAuthentication,\n    ],",
+          )
+          '''.replace('          ', '')
+          if obsolete not in text:
+              raise SystemExit('obsolete no-op anchor not found')
+          p.write_text(text.replace(obsolete, '', 1))
           PY
       - name: Apply Stage 8 patch
         run: python3 .github/scripts/apply_qwen_web_stage8.py
