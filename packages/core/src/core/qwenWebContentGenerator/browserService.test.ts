@@ -21,6 +21,8 @@ const transport: QwenWebTransportState = { browserEpoch: 1, pageEpoch: 1 };
 class FakeController implements QwenWebBrowserController {
   readonly sendCalls: string[] = [];
   readonly stopCalls: string[] = [];
+  readonly disposedChannels: string[] = [];
+  closeCalls = 0;
   private readonly pending: PendingSend[] = [];
   private pageEpoch = 0;
 
@@ -45,7 +47,13 @@ class FakeController implements QwenWebBrowserController {
     this.stopCalls.push(channel);
   }
 
-  async close(): Promise<void> {}
+  async disposeChannel(channel: string): Promise<void> {
+    this.disposedChannels.push(channel);
+  }
+
+  async close(): Promise<void> {
+    this.closeCalls += 1;
+  }
 
   resolveNext(channel: string, text: string): void {
     const index = this.pending.findIndex((entry) => entry.channel === channel);
@@ -140,5 +148,41 @@ describe('QwenWebBrowserService cancellation ownership', () => {
     controller.resolveNext('b', 'two');
     await expect(first).resolves.toBe('one');
     await expect(second).resolves.toBe('two');
+  });
+});
+
+describe('QwenWebBrowserService lifecycle', () => {
+  it('disposes an explicit channel without closing the shared browser', async () => {
+    const controller = new FakeController();
+    const service = new QwenWebBrowserService(controller);
+
+    await service.disposeChannel('session-old:main');
+
+    expect(controller.disposedChannels).toEqual(['session-old:main']);
+    expect(controller.closeCalls).toBe(0);
+  });
+
+  it('prunes the oldest idle channel when the configured cap is exceeded', async () => {
+    const controller = new FakeController();
+    const service = new QwenWebBrowserService(controller, 1);
+
+    await service.withChannel('old', undefined, (session) =>
+      session.prepare('qwen3.8-max'),
+    );
+    await service.withChannel('new', undefined, (session) =>
+      session.prepare('qwen3.8-max'),
+    );
+
+    expect(controller.disposedChannels).toEqual(['old']);
+  });
+
+  it('closes the process-wide controller idempotently', async () => {
+    const controller = new FakeController();
+    const service = new QwenWebBrowserService(controller);
+
+    await service.close();
+    await service.close();
+
+    expect(controller.closeCalls).toBe(1);
   });
 });
