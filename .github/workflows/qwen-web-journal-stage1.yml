@@ -1,0 +1,74 @@
+name: Qwen Web Record Stage 1
+
+on:
+  push:
+    branches:
+      - work/stage1-model-contract
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/qwen-web-browser-provider
+          fetch-depth: 0
+      - name: Update recovery journal
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/qwen-web-implementation-status.md')
+          text = path.read_text()
+
+          old_next = "**NEXT ACTION:** Stage 1 — implement the built-in credentialless, text-only Qwen Web model contract on a dedicated work branch, add focused model registry/resolver tests, then run focused tests + build + typecheck before merging it into the feature branch."
+          new_next = "**NEXT ACTION:** Stage 2 — restore hardened Qwen Web browser transport semantics from the known-working `src.zip` reference without importing its legacy agent loop, DeepSeek support, or sentinel protocol. Implement browser launch hardening, whitespace-preserving first-selector response extraction, stabilized login detection, robust comparison/retry/provider-error/model selection, and actual-response-scoped native-tool detection; add focused browser/controller tests before moving to Stage 3."
+          if old_next not in text:
+              raise SystemExit('NEXT ACTION anchor not found')
+          text = text.replace(old_next, new_next, 1)
+
+          start = text.index('### Stage 1 — Credentialless text-only model contract')
+          end = text.index('### Stage 2 — Restore hardened browser transport semantics')
+          stage1 = '''### Stage 1 — Credentialless text-only model contract
+
+Status: **COMPLETE**
+
+Completed:
+
+- [x] Added hard-coded `QWEN_WEB_MODELS` containing `qwen3.8-max`.
+- [x] Registered qwen-web in `ModelRegistry` and prevented `modelProviders` from overriding the built-in qwen-web model set.
+- [x] Default qwen-web registry model is `qwen3.8-max`.
+- [x] Forced qwen-web `modalities: {}` regardless of generic model detection/settings/provider media declarations.
+- [x] Resolver ignores API key, API-key env key and base URL sources for qwen-web.
+- [x] Explicit model selection is preserved rather than silently falling back.
+- [x] Added `packages/core/src/models/qwenWebModelContract.test.ts` covering registry/default/text-only/no-key/no-base-url/provider override/explicit-model/validation behavior.
+- [x] Product/test commit on feature branch: `4c7159492c2ffb7c5c885ed1ce6a0414dea081e2` (`fix(qwen-web): define credentialless text-only model contract`).
+- [x] Verified diff from Stage 0 journal HEAD is exactly four files: `constants.ts`, `modelRegistry.ts`, `modelConfigResolver.ts`, and the new focused test.
+- [x] Corrected verification workflow run `35189551378`: focused Stage 1 tests PASS, full `npm run build` PASS, full `npm run typecheck` PASS. The job was executed twice after the patch-anchor correction; both substantive verification passes were green.
+- [x] The two verification jobs failed only after all checks, at their final `git push` step because the temporary work branch moved and Git correctly rejected a non-fast-forward update. No product/test failure was involved.
+- [x] Verified code was therefore published from a clean feature-branch checkout by publication run `35191928662`, job `105106207909`; patch extraction, clean feature checkout, patch application, formatting, commit and push all PASS.
+
+Evidence note: no third build/typecheck run was performed after the two identical substantive green verification passes. The publication job only reproduced the same deterministic patch and Prettier formatting on clean feature HEAD and published it.
+
+'''
+          text = text[:start] + stage1 + text[end:]
+
+          old_stage2 = '### Stage 2 — Restore hardened browser transport semantics\n\nStatus: NOT STARTED'
+          new_stage2 = '### Stage 2 — Restore hardened browser transport semantics\n\nStatus: **IN PROGRESS**'
+          if old_stage2 not in text:
+              raise SystemExit('Stage 2 status anchor not found')
+          text = text.replace(old_stage2, new_stage2, 1)
+
+          path.write_text(text)
+          PY
+      - name: Commit journal update
+        run: |
+          git config user.name "go-0dboy"
+          git config user.email "84291994+go-0dboy@users.noreply.github.com"
+          git add docs/qwen-web-implementation-status.md
+          git commit -m "docs(qwen-web): record completed stage1 model contract"
+          git push origin HEAD:feat/qwen-web-browser-provider
