@@ -1,4 +1,4 @@
-name: Qwen Web Stages 2-6 Verify
+name: Qwen Web Stages 2-7 Verify
 
 on:
   push:
@@ -6,14 +6,9 @@ on:
       - feat/qwen-web-browser-provider
     paths:
       - '.github/workflows/qwen-web-stage2-verify.yml'
-      - 'packages/core/src/core/qwenWebContentGenerator/browser/**'
-      - 'packages/core/src/core/qwenWebContentGenerator/browserService.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/browserService.test.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/conversationSynchronizer.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/conversationSynchronizer.test.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/qwenWebContentGenerator.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/qwenWebContentGenerator.transportReset.test.ts'
-      - 'packages/core/src/core/qwenWebContentGenerator/qwenWebContentGenerator.dirtyReplay.test.ts'
+      - 'packages/core/src/core/qwenWebContentGenerator/**'
+      - 'packages/cli/src/utils/cleanup.ts'
+      - 'packages/cli/src/utils/qwen-web-cleanup.test.ts'
 
 permissions:
   contents: read
@@ -30,8 +25,10 @@ jobs:
           cache: npm
       - name: Clean install
         run: npm ci
-      - name: Focused Qwen Web tests
-        run: npm -w packages/core test -- src/core/qwenWebContentGenerator/browser/controller.test.ts src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts src/core/qwenWebContentGenerator/browser/sharedAuthenticationTask.test.ts src/core/qwenWebContentGenerator/browserService.test.ts src/core/qwenWebContentGenerator/conversationSynchronizer.test.ts src/core/qwenWebContentGenerator/qwenWebContentGenerator.transportReset.test.ts src/core/qwenWebContentGenerator/qwenWebContentGenerator.dirtyReplay.test.ts
+      - name: Focused Qwen Web core tests
+        run: npm -w packages/core test -- src/core/qwenWebContentGenerator/browser/controller.test.ts src/core/qwenWebContentGenerator/browser/pageRuntime.browser.test.ts src/core/qwenWebContentGenerator/browser/sharedAuthenticationTask.test.ts src/core/qwenWebContentGenerator/browserService.test.ts src/core/qwenWebContentGenerator/conversationSynchronizer.test.ts src/core/qwenWebContentGenerator/qwenWebContentGenerator.transportReset.test.ts src/core/qwenWebContentGenerator/qwenWebContentGenerator.dirtyReplay.test.ts src/core/qwenWebContentGenerator/qwenWebContentGenerator.lifecycle.test.ts src/core/qwenWebContentGenerator/lifecycle.test.ts
+      - name: Focused Qwen Web CLI lifecycle test
+        run: npm -w packages/cli test -- src/utils/qwen-web-cleanup.test.ts
       - name: Build
         run: npm run build
       - name: Typecheck
