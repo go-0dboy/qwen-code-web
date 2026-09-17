@@ -91,6 +91,7 @@ function createStream(
 
 export class QwenWebContentGenerator implements ContentGenerator {
   private readonly synchronizer = new ConversationSynchronizer();
+  private readonly channelByOwner = new Map<string, string>();
 
   constructor(
     private readonly generatorConfig: ContentGeneratorConfig,
@@ -109,7 +110,15 @@ export class QwenWebContentGenerator implements ContentGenerator {
     }
 
     const sessionId = this.config.getSessionId();
-    const channel = `${sessionId}:${channelOwner()}`;
+    const owner = channelOwner();
+    const channel = `${sessionId}:${owner}`;
+    const previousChannel = this.channelByOwner.get(owner);
+    if (previousChannel && previousChannel !== channel) {
+      this.synchronizer.reset(previousChannel);
+      await this.browserService.disposeChannel?.(previousChannel);
+    }
+    this.channelByOwner.set(owner, channel);
+
     const contents = normalizeContents(request.contents);
     const promptContext = {
       systemInstruction: request.config?.systemInstruction,
