@@ -1,0 +1,59 @@
+name: Qwen Web Stage 1 Publish Verified Commit
+
+on:
+  push:
+    branches:
+      - work/stage1-model-contract
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout work branch
+        uses: actions/checkout@v4
+        with:
+          ref: work/stage1-model-contract
+          fetch-depth: 0
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Extract the already verified Stage 1 patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/qwen-web-stage1-model-contract.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(source) if "python3 - <<'PY'" in line) + 1
+          end = next(i for i in range(start, len(source)) if source[i].strip() == 'PY')
+          block = source[start:end]
+          indent = min(len(line) - len(line.lstrip()) for line in block if line.strip())
+          Path('/tmp/apply-stage1.py').write_text(
+              '\n'.join(line[indent:] if line.strip() else '' for line in block) + '\n'
+          )
+          PY
+      - name: Checkout clean feature branch
+        run: |
+          git fetch origin feat/qwen-web-browser-provider
+          git checkout -B publish-stage1 origin/feat/qwen-web-browser-provider
+      - name: Apply verified Stage 1 patch
+        run: python3 /tmp/apply-stage1.py
+      - name: Install formatting toolchain
+        run: npm ci --ignore-scripts
+      - name: Format exactly as verified
+        run: npx prettier --write packages/core/src/models/constants.ts packages/core/src/models/modelRegistry.ts packages/core/src/models/modelConfigResolver.ts packages/core/src/models/qwenWebModelContract.test.ts
+      - name: Commit and publish Stage 1
+        run: |
+          git config user.name "go-0dboy"
+          git config user.email "84291994+go-0dboy@users.noreply.github.com"
+          git add packages/core/src/models/constants.ts \
+                  packages/core/src/models/modelRegistry.ts \
+                  packages/core/src/models/modelConfigResolver.ts \
+                  packages/core/src/models/qwenWebModelContract.test.ts
+          git commit -m "fix(qwen-web): define credentialless text-only model contract"
+          git push origin HEAD:feat/qwen-web-browser-provider
