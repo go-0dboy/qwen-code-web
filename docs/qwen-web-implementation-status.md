@@ -164,7 +164,11 @@ npm run test:ci
 npm run check:serve-fast-path-bundle
 ```
 
-**NEXT ACTION:** run the commands above in a dedicated non-mutating GitHub Actions verifier on the current feature branch. Fix only concrete failures, re-run until green, then record the final run ID and move to Stage 12.
+First Stage 11 run `35255501527` reached `lint:ci` after `npm ci` and `check:lockfile` passed. The failure is repository-convention cleanup only: Qwen Web files need kebab-case names, two CLI imports must use direct core subpaths, and one test has a mechanical `prefer-const` issue.
+
+A one-shot migration workflow commit `f7936b76dd02e4c683f0f8ed91f16c569089f7d0` is prepared to apply the deterministic rename/import cleanup and then push the resulting refactor commit.
+
+**NEXT ACTION:** move branch `feat/qwen-web-browser-provider` to `f7936b76dd02e4c683f0f8ed91f16c569089f7d0`, let the one-shot kebab migration run, inspect its commit/logs, remove the migration workflow after success, then re-run Stage 11 full gate from the cleaned branch.
 
 ## Remaining stage
 
