@@ -10,7 +10,11 @@ import type { QwenWebTransportState } from './browser/types.js';
 export interface QwenWebChannelSession {
   prepare(model: string): Promise<QwenWebTransportState>;
   reset(model: string): Promise<QwenWebTransportState>;
-  send(prompt: string, model: string): Promise<string>;
+  send(
+    prompt: string,
+    model: string,
+    expectedTransport: QwenWebTransportState,
+  ): Promise<string>;
 }
 
 export interface QwenWebBrowserController {
@@ -28,6 +32,7 @@ export interface QwenWebBrowserController {
     channel: string,
     prompt: string,
     model: string,
+    expectedTransport: QwenWebTransportState,
     signal?: AbortSignal,
   ): Promise<string>;
   stopGeneration(channel: string): Promise<void>;
@@ -77,9 +82,6 @@ export class QwenWebBrowserService implements QwenWebBrowserServiceLike {
 
     const onAbort = () => {
       cancelled = true;
-      // A queued request does not own the channel and must never stop the
-      // request ahead of it. Once this request owns an active send, Stop is
-      // issued out-of-band exactly once and cancellation wins the send race.
       if (!active || !sendInFlight || stopStarted) return;
       stopStarted = true;
       void this.controller
@@ -102,17 +104,15 @@ export class QwenWebBrowserService implements QwenWebBrowserServiceLike {
               if (cancelled) throw abortError();
               return this.controller.newConversation(channel, model, signal);
             },
-            send: async (prompt, model) => {
+            send: async (prompt, model, expectedTransport) => {
               if (cancelled) throw abortError();
               sendInFlight = true;
               try {
-                // BrowserService owns cancellation for an active send. Passing
-                // the same signal into the controller as well would register a
-                // second Stop path and can stop twice.
                 const response = this.controller.sendPrompt(
                   channel,
                   prompt,
                   model,
+                  expectedTransport,
                   undefined,
                 );
                 const text = signal

@@ -34,6 +34,22 @@ export interface QwenWebTransportState {
   pageEpoch: number;
 }
 
+export class QwenWebTransportResetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QwenWebTransportResetError';
+  }
+}
+
 export function transportEpochKey(state: QwenWebTransportState): string {
   return `${state.browserEpoch}:${state.pageEpoch}`;
+}
+
+export function transportStateMatches(
+  left: QwenWebTransportState,
+  right: QwenWebTransportState,
+): boolean {
+  return (
+    left.browserEpoch === right.browserEpoch && left.pageEpoch === right.pageEpoch
+  );
 }

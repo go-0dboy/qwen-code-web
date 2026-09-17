@@ -23,7 +23,10 @@ import {
   getQwenWebBrowserService,
   type QwenWebBrowserServiceLike,
 } from './browserService.js';
-import { transportEpochKey } from './browser/types.js';
+import {
+  QwenWebTransportResetError,
+  transportEpochKey,
+} from './browser/types.js';
 import {
   ConversationSynchronizer,
   type ConversationSyncInput,
@@ -151,7 +154,35 @@ export class QwenWebContentGenerator implements ContentGenerator {
           );
         }
 
-        const responseText = await browserSession.send(prompt, model);
+        let responseText: string;
+        try {
+          responseText = await browserSession.send(prompt, model, transport);
+        } catch (error) {
+          if (!(error instanceof QwenWebTransportResetError)) throw error;
+
+          // The browser/page changed after synchronization was planned. The
+          // delta is no longer safe to send into a fresh web chat. Discard the
+          // transport cache and retry exactly once with the complete canonical
+          // Qwen Code history.
+          this.synchronizer.reset(channel);
+          transport = await browserSession.reset(model);
+          syncInput = {
+            ...syncInput,
+            transportEpoch: transportEpochKey(transport),
+          };
+          const replayPrompt = buildQwenWebReplayPrompt(contents, promptContext);
+          if (!replayPrompt.trim()) {
+            throw new Error(
+              'Qwen Web browser provider produced an empty replay prompt after a transport reset.',
+            );
+          }
+          responseText = await browserSession.send(
+            replayPrompt,
+            model,
+            transport,
+          );
+        }
+
         this.synchronizer.commit(syncInput);
         return responseText;
       },

@@ -9,11 +9,14 @@ import {
   QwenWebBrowserService,
   type QwenWebBrowserController,
 } from './browserService.js';
+import type { QwenWebTransportState } from './browser/types.js';
 
 interface PendingSend {
   channel: string;
   resolve(text: string): void;
 }
+
+const transport: QwenWebTransportState = { browserEpoch: 1, pageEpoch: 1 };
 
 class FakeController implements QwenWebBrowserController {
   readonly sendCalls: string[] = [];
@@ -66,13 +69,13 @@ describe('QwenWebBrowserService cancellation ownership', () => {
     const service = new QwenWebBrowserService(controller);
 
     const active = service.withChannel('same', undefined, (session) =>
-      session.send('first', 'qwen3.8-max'),
+      session.send('first', 'qwen3.8-max', transport),
     );
     await eventually(() => controller.sendCalls.length === 1);
 
     const queuedAbort = new AbortController();
     const queued = service.withChannel('same', queuedAbort.signal, (session) =>
-      session.send('second', 'qwen3.8-max'),
+      session.send('second', 'qwen3.8-max', transport),
     );
     queuedAbort.abort();
 
@@ -92,7 +95,7 @@ describe('QwenWebBrowserService cancellation ownership', () => {
     const abort = new AbortController();
 
     const request = service.withChannel('active', abort.signal, (session) =>
-      session.send('prompt', 'qwen3.8-max'),
+      session.send('prompt', 'qwen3.8-max', transport),
     );
     await eventually(() => controller.sendCalls.length === 1);
 
@@ -106,10 +109,10 @@ describe('QwenWebBrowserService cancellation ownership', () => {
     const service = new QwenWebBrowserService(controller);
 
     const first = service.withChannel('same', undefined, (session) =>
-      session.send('first', 'qwen3.8-max'),
+      session.send('first', 'qwen3.8-max', transport),
     );
     const second = service.withChannel('same', undefined, (session) =>
-      session.send('second', 'qwen3.8-max'),
+      session.send('second', 'qwen3.8-max', transport),
     );
 
     await eventually(() => controller.sendCalls.length === 1);
@@ -125,10 +128,10 @@ describe('QwenWebBrowserService cancellation ownership', () => {
     const service = new QwenWebBrowserService(controller);
 
     const first = service.withChannel('a', undefined, (session) =>
-      session.send('first', 'qwen3.8-max'),
+      session.send('first', 'qwen3.8-max', transport),
     );
     const second = service.withChannel('b', undefined, (session) =>
-      session.send('second', 'qwen3.8-max'),
+      session.send('second', 'qwen3.8-max', transport),
     );
 
     await eventually(() => controller.sendCalls.length === 2);

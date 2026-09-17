@@ -14,11 +14,13 @@ import {
   ensureQwenWebBrowserDirectories,
   resolveQwenWebBrowserExecutable,
 } from './config.js';
-import type {
-  QwenWebPageBridge,
-  QwenWebPreparedPrompt,
-  QwenWebRuntimeStatus,
-  QwenWebTransportState,
+import {
+  QwenWebTransportResetError,
+  transportStateMatches,
+  type QwenWebPageBridge,
+  type QwenWebPreparedPrompt,
+  type QwenWebRuntimeStatus,
+  type QwenWebTransportState,
 } from './types.js';
 
 const QWEN_WEB_URL = 'https://chat.qwen.ai/';
@@ -150,13 +152,24 @@ export class PuppeteerBrowserController {
     channel: string,
     prompt: string,
     model: string,
+    expectedTransport: QwenWebTransportState,
     signal?: AbortSignal,
   ): Promise<string> {
     throwIfAborted(signal);
-    const state = await this.prepareChannel(channel, model, signal);
     const entry = this.channels.get(channel);
-    if (!entry || entry.page.isClosed()) {
-      throw new Error(`Qwen Web channel '${channel}' lost its browser page.`);
+    const currentTransport = entry
+      ? { browserEpoch: this.browserEpoch, pageEpoch: entry.pageEpoch }
+      : undefined;
+    if (
+      !entry ||
+      entry.page.isClosed() ||
+      entry.model !== model ||
+      !currentTransport ||
+      !transportStateMatches(currentTransport, expectedTransport)
+    ) {
+      throw new QwenWebTransportResetError(
+        `Qwen Web channel '${channel}' changed before the prompt could be sent.`,
+      );
     }
 
     const prepared = await entry.page.evaluate(async (text) => {
@@ -176,8 +189,12 @@ export class PuppeteerBrowserController {
       return bridge.waitForResponse(baseline as QwenWebPreparedPrompt);
     }, prepared);
 
-    if (!signal) return responsePromise;
-    return this.raceAbort(channel, state, responsePromise, signal);
+    if (!signal) {
+      const text = await responsePromise;
+      this.assertTransportUnchanged(channel, expectedTransport);
+      return text;
+    }
+    return this.raceAbort(channel, expectedTransport, responsePromise, signal);
   }
 
   async stopGeneration(channel: string): Promise<void> {
@@ -198,6 +215,27 @@ export class PuppeteerBrowserController {
     const browser = this.browser;
     this.browser = undefined;
     if (browser) await browser.close().catch(() => undefined);
+  }
+
+  private assertTransportUnchanged(
+    channel: string,
+    expectedTransport: QwenWebTransportState,
+  ): void {
+    const current = this.channels.get(channel);
+    if (!current || current.page.isClosed()) {
+      throw new QwenWebTransportResetError(
+        `Qwen Web channel '${channel}' lost its browser page while a response was in flight.`,
+      );
+    }
+    const currentTransport = {
+      browserEpoch: this.browserEpoch,
+      pageEpoch: current.pageEpoch,
+    };
+    if (!transportStateMatches(currentTransport, expectedTransport)) {
+      throw new QwenWebTransportResetError(
+        `Qwen Web channel '${channel}' changed while a response was in flight.`,
+      );
+    }
   }
 
   private async raceAbort(
@@ -224,20 +262,12 @@ export class PuppeteerBrowserController {
           if (settled) return;
           settled = true;
           signal.removeEventListener('abort', onAbort);
-          const current = this.channels.get(channel);
-          if (
-            !current ||
-            state.browserEpoch !== this.browserEpoch ||
-            state.pageEpoch !== current.pageEpoch
-          ) {
-            reject(
-              new Error(
-                `Qwen Web channel '${channel}' changed while a response was in flight.`,
-              ),
-            );
-            return;
+          try {
+            this.assertTransportUnchanged(channel, state);
+            resolve(text);
+          } catch (error) {
+            reject(error);
           }
-          resolve(text);
         },
         (error: unknown) => {
           if (settled) return;
