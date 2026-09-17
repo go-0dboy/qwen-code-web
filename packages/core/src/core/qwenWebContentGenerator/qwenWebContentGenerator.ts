@@ -118,75 +118,87 @@ export class QwenWebContentGenerator implements ContentGenerator {
     const systemSignature = qwenWebPromptSignature(promptContext);
     const signal = request.config?.abortSignal;
 
-    const text = await this.browserService.withChannel(
-      channel,
-      signal,
-      async (browserSession) => {
-        let transport = await browserSession.prepare(model);
-        let syncInput: ConversationSyncInput = {
-          channel,
-          sessionId,
-          model,
-          systemSignature,
-          transportEpoch: transportEpochKey(transport),
-          contents,
-        };
-        const plan = this.synchronizer.plan(syncInput);
-
-        let prompt: string;
-        if (plan.reset) {
-          transport = await browserSession.reset(model);
-          syncInput = {
-            ...syncInput,
+    let text: string;
+    try {
+      text = await this.browserService.withChannel(
+        channel,
+        signal,
+        async (browserSession) => {
+          let transport = await browserSession.prepare(model);
+          let syncInput: ConversationSyncInput = {
+            channel,
+            sessionId,
+            model,
+            systemSignature,
             transportEpoch: transportEpochKey(transport),
+            contents,
           };
-          prompt = buildQwenWebReplayPrompt(
-            plan.replay as readonly Content[],
-            promptContext,
-          );
-        } else {
-          prompt = buildQwenWebDeltaPrompt(plan.delta as readonly Content[]);
-        }
+          const plan = this.synchronizer.plan(syncInput);
 
-        if (!prompt.trim()) {
-          throw new Error(
-            'Qwen Web browser provider produced an empty transport prompt from the canonical Qwen Code history.',
-          );
-        }
+          let prompt: string;
+          if (plan.reset) {
+            transport = await browserSession.reset(model);
+            syncInput = {
+              ...syncInput,
+              transportEpoch: transportEpochKey(transport),
+            };
+            prompt = buildQwenWebReplayPrompt(
+              plan.replay as readonly Content[],
+              promptContext,
+            );
+          } else {
+            prompt = buildQwenWebDeltaPrompt(plan.delta as readonly Content[]);
+          }
 
-        let responseText: string;
-        try {
-          responseText = await browserSession.send(prompt, model, transport);
-        } catch (error) {
-          if (!(error instanceof QwenWebTransportResetError)) throw error;
-
-          // The browser/page changed after synchronization was planned. The
-          // delta is no longer safe to send into a fresh web chat. Discard the
-          // transport cache and retry exactly once with the complete canonical
-          // Qwen Code history.
-          this.synchronizer.reset(channel);
-          transport = await browserSession.reset(model);
-          syncInput = {
-            ...syncInput,
-            transportEpoch: transportEpochKey(transport),
-          };
-          const replayPrompt = buildQwenWebReplayPrompt(contents, promptContext);
-          if (!replayPrompt.trim()) {
+          if (!prompt.trim()) {
             throw new Error(
-              'Qwen Web browser provider produced an empty replay prompt after a transport reset.',
+              'Qwen Web browser provider produced an empty transport prompt from the canonical Qwen Code history.',
             );
           }
-          responseText = await browserSession.send(
-            replayPrompt,
-            model,
-            transport,
-          );
-        }
 
-        this.synchronizer.commit(syncInput);
-        return responseText;
-      },
-    );
+          let responseText: string;
+          try {
+            responseText = await browserSession.send(prompt, model, transport);
+          } catch (error) {
+            if (!(error instanceof QwenWebTransportResetError)) throw error;
+
+            // A delta is unsafe after page/browser loss. Discard the transport
+            // cache and retry exactly once in a fresh web chat with the full
+            // canonical Qwen Code history.
+            this.synchronizer.reset(channel);
+            transport = await browserSession.reset(model);
+            syncInput = {
+              ...syncInput,
+              transportEpoch: transportEpochKey(transport),
+            };
+            const replayPrompt = buildQwenWebReplayPrompt(
+              contents,
+              promptContext,
+            );
+            if (!replayPrompt.trim()) {
+              throw new Error(
+                'Qwen Web browser provider produced an empty replay prompt after a transport reset.',
+              );
+            }
+            responseText = await browserSession.send(
+              replayPrompt,
+              model,
+              transport,
+            );
+          }
+
+          this.synchronizer.commit(syncInput);
+          return responseText;
+        },
+      );
+    } catch (error) {
+      // A failed or cancelled turn may already have modified the browser chat
+      // even though Qwen Code intentionally does not accept its partial model
+      // output. Mark the transport cache invalid so the next request creates a
+      // fresh web conversation and replays canonical Qwen Code history.
+      this.synchronizer.reset(channel);
+      throw error;
+    }
 
     return createQwenWebGenerateContentResponse(text);
   }
