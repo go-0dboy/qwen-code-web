@@ -12,6 +12,8 @@ type AuthType = import('../core/contentGenerator.js').AuthType;
 type ContentGeneratorConfig =
   import('../core/contentGenerator.js').ContentGeneratorConfig;
 
+export const QWEN_WEB_DEFAULT_MODEL = 'qwen3.8-max';
+
 /**
  * Field keys for model-scoped generation config.
  *
@@ -102,11 +104,17 @@ export const AUTH_ENV_MAPPINGS = {
     baseUrl: [],
     model: [],
   },
+  'qwen-web': {
+    apiKey: [],
+    baseUrl: [],
+    model: [],
+  },
 } as const satisfies Record<AuthType, AuthEnvMapping>;
 
 export const DEFAULT_MODELS = {
   openai: MAINLINE_CODER_MODEL,
   'qwen-oauth': DEFAULT_QWEN_MODEL,
+  'qwen-web': QWEN_WEB_DEFAULT_MODEL,
 } as Partial<Record<AuthType, string>>;
 
 /**

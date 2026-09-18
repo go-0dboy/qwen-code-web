@@ -296,6 +296,10 @@ export function validateAuthMethod(
     return null;
   }
 
+  if (authMethod === AuthType.QWEN_WEB) {
+    return null;
+  }
+
   if (authMethod === AuthType.QWEN_OAUTH) {
     // Qwen OAuth free tier was discontinued on 2026-04-15.
     // Block new OAuth setups; existing cached tokens still work until server rejects them.

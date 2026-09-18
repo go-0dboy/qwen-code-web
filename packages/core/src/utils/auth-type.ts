@@ -9,6 +9,7 @@ export enum AuthType {
   USE_OPENAI = 'openai',
   USE_OPENAI_RESPONSES = 'openai-responses',
   QWEN_OAUTH = 'qwen-oauth',
+  QWEN_WEB = 'qwen-web',
   USE_GEMINI = 'gemini',
   USE_VERTEX_AI = 'vertex-ai',
   USE_ANTHROPIC = 'anthropic',

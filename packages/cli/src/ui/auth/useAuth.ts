@@ -15,6 +15,7 @@ import {
   type ProviderConfig,
   type ProviderSetupInputs,
 } from '@qwen-code/qwen-code-core';
+import { QWEN_WEB_DEFAULT_MODEL } from '@qwen-code/qwen-code-core/models/constants.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LoadedSettings } from '../../config/settings.js';
 import { createLoadedSettingsAdapter } from '../../config/loadedSettingsAdapter.js';
@@ -73,6 +74,8 @@ export type AuthController = {
       providerConfig: ProviderConfig,
       inputs: ProviderSetupInputs,
     ) => Promise<void>;
+    /** Switch to the browser-backed Qwen Web provider without API credentials. */
+    handleQwenWebSubmit: () => Promise<void>;
     openAuthDialog: () => void;
     cancelAuthentication: () => void;
   };
@@ -157,6 +160,21 @@ export const useAuthCommand = (
     onAuthChange?.();
   }, [onAuthChange]);
 
+  const recordAuthResult = useCallback(
+    (feedbackItem: HistoryItemWithoutId & Record<string, unknown>) => {
+      addItem(feedbackItem, Date.now());
+      if (openedViaCommandRef.current) {
+        openedViaCommandRef.current = false;
+        config.getChatRecordingService?.()?.recordSlashCommand({
+          phase: 'result',
+          rawCommand: '/auth',
+          outputHistoryItems: [feedbackItem],
+        });
+      }
+    },
+    [addItem, config],
+  );
+
   // -- Provider connect -----------------------------------------------------
 
   const handleProviderSubmit = useCallback(
@@ -210,15 +228,7 @@ export const useAuthCommand = (
                 { provider: providerConfig.label },
               ),
         };
-        addItem(feedbackItem, Date.now());
-        if (openedViaCommandRef.current) {
-          openedViaCommandRef.current = false;
-          config.getChatRecordingService?.()?.recordSlashCommand({
-            phase: 'result',
-            rawCommand: '/auth',
-            outputHistoryItems: [feedbackItem],
-          });
-        }
+        recordAuthResult(feedbackItem);
 
         if (plan.modelSelection)
           logAuth(config, new AuthEvent(protocol, 'manual', 'success'));
@@ -232,11 +242,60 @@ export const useAuthCommand = (
       settings,
       config,
       completeAuthentication,
-      addItem,
       handleAuthFailure,
       onAuthError,
+      recordAuthResult,
     ],
   );
+
+  const handleQwenWebSubmit = useCallback(async () => {
+    const protocol = AuthType.QWEN_WEB;
+    try {
+      setPendingAuthType(protocol);
+      setIsAuthenticating(true);
+      setAuthError(null);
+
+      // Qwen Web is intentionally not routed through buildInstallPlan(): that
+      // helper models API-backed providers and always materializes credential
+      // env/baseUrl/model-provider state. A minimal hand-built plan lets us
+      // reuse the same transactional persistence + runtime refresh path while
+      // storing only the auth type and the browser provider's default model.
+      await applyProviderInstallPlan(
+        {
+          providerId: AuthType.QWEN_WEB,
+          authType: protocol,
+          modelSelection: { modelId: QWEN_WEB_DEFAULT_MODEL },
+        },
+        {
+          settings: createLoadedSettingsAdapter(settings),
+          reloadModelProviders: (mp) => config.reloadModelProvidersConfig(mp),
+          syncAuthState: (authType, modelId, baseUrl) =>
+            config
+              .getModelsConfig()
+              .syncAfterAuthRefresh(authType, modelId, baseUrl),
+          refreshAuth: (authType) => config.refreshAuth(authType),
+        },
+      );
+
+      completeAuthentication();
+      const feedbackItem: HistoryItemWithoutId & Record<string, unknown> = {
+        type: MessageType.INFO,
+        text: t(
+          'Qwen Web configured. Browser sign-in will be requested on the first model request if needed.',
+        ),
+      };
+      recordAuthResult(feedbackItem);
+      logAuth(config, new AuthEvent(protocol, 'manual', 'success'));
+    } catch (error) {
+      handleAuthFailure(error, protocol);
+    }
+  }, [
+    settings,
+    config,
+    completeAuthentication,
+    handleAuthFailure,
+    recordAuthResult,
+  ]);
 
   // -- Dialog open / close / cancel ----------------------------------------
 
@@ -270,6 +329,7 @@ export const useAuthCommand = (
     const val = process.env['QWEN_DEFAULT_AUTH_TYPE'];
     const valid = [
       AuthType.QWEN_OAUTH,
+      AuthType.QWEN_WEB,
       AuthType.USE_OPENAI,
       AuthType.USE_OPENAI_RESPONSES,
       AuthType.USE_ANTHROPIC,
@@ -313,6 +373,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleQwenWebSubmit,
       openAuthDialog,
       cancelAuthentication,
     }),
@@ -321,6 +382,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleQwenWebSubmit,
       openAuthDialog,
       cancelAuthentication,
     ],
@@ -338,6 +400,7 @@ export const useAuthCommand = (
     qwenAuthState,
     closeAuthDialog,
     handleProviderSubmit,
+    handleQwenWebSubmit,
     openAuthDialog,
     cancelAuthentication,
     state,

@@ -242,6 +242,7 @@ export type AuthType =
   | 'openai-responses'
   | 'anthropic'
   | 'qwen-oauth'
+  | 'qwen-web'
   | 'gemini'
   | 'vertex-ai';
 
