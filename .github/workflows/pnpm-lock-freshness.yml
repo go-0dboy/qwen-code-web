@@ -69,6 +69,14 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: 'corepack pnpm import'
 
+      - name: 'Upload regenerated pnpm lockfile'
+        uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' # v4
+        with:
+          name: 'regenerated-pnpm-lock'
+          path: 'pnpm-lock.yaml'
+          if-no-files-found: 'error'
+          retention-days: 1
+
       - name: 'Compare with the committed lockfile'
         shell: 'bash'
         run: |
