@@ -155,6 +155,22 @@ export class PuppeteerBrowserController {
     if (browser) await browser.close().catch(() => undefined);
   }
 
+  /**
+   * Best-effort synchronous fallback for Node's `exit` event. Async browser
+   * close is impossible there, so terminate the child process directly.
+   * Normal shutdown still uses close().
+   */
+  forceKill(): void {
+    const browser = this.browser;
+    this.browser = undefined;
+    this.channels.clear();
+    try {
+      browser?.process()?.kill();
+    } catch {
+      // The process is already exiting; there is no useful recovery here.
+    }
+  }
+
   private async raceAbort(
     channel: string,
     state: QwenWebTransportState,
