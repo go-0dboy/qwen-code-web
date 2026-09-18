@@ -8,6 +8,7 @@ import type React from 'react';
 import { useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import Link from 'ink-link';
+import { AuthType } from '@qwen-code/qwen-code-core';
 import { theme } from '../semantic-colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { DescriptiveRadioButtonSelect } from '../components/shared/DescriptiveRadioButtonSelect.js';
@@ -44,7 +45,8 @@ type ViewLevel =
 type MainOption =
   | 'ALIBABA_MODELSTUDIO'
   | 'THIRD_PARTY_PROVIDERS'
-  | 'CUSTOM_PROVIDER';
+  | 'CUSTOM_PROVIDER'
+  | 'QWEN_WEB';
 
 // ---------------------------------------------------------------------------
 // Static data
@@ -75,6 +77,13 @@ const MAIN_ITEMS = [
       'Manually connect a local server, proxy, or unsupported provider',
     ),
     value: 'CUSTOM_PROVIDER' as MainOption,
+  },
+  {
+    key: 'QWEN_WEB',
+    title: t('Qwen Web'),
+    label: t('Qwen Web'),
+    description: t('Use browser session, no API key'),
+    value: 'QWEN_WEB' as MainOption,
   },
 ];
 
@@ -124,7 +133,12 @@ export function AuthDialog(): React.JSX.Element {
     auth: { authError },
   } = useUIState();
   const {
-    auth: { closeAuthDialog, handleProviderSubmit, onAuthError },
+    auth: {
+      closeAuthDialog,
+      handleProviderSubmit,
+      handleQwenWebSubmit,
+      onAuthError,
+    },
   } = useUIActions();
   const config = useConfig();
   const settings = useSettings();
@@ -224,16 +238,17 @@ export function AuthDialog(): React.JSX.Element {
     contentGenConfig?.baseUrl,
     contentGenConfig?.apiKeyEnvKey,
   );
+  const activeAuthType = config.getAuthType();
 
   // Land on the tab that matches the active provider's uiGroup so a DeepSeek
   // / MiniMax / OpenRouter user opens Third-party Providers, not Alibaba.
-  // (resolveMetadataKey returns config.id for *any* provider with a static
-  // models[], so it can't be used to detect "Alibaba" specifically.)
+  // Qwen Web has no ProviderConfig/API credentials, so match it by AuthType.
   const defaultMainIndex = useMemo(() => {
+    if (activeAuthType === AuthType.QWEN_WEB) return 3;
     if (matchedProvider?.uiGroup === 'third-party') return 1;
     if (matchedProvider?.uiGroup === 'custom') return 2;
     return 0;
-  }, [matchedProvider]);
+  }, [activeAuthType, matchedProvider]);
 
   // -- Handlers -------------------------------------------------------------
 
@@ -254,6 +269,9 @@ export function AuthDialog(): React.JSX.Element {
           getExistingModelIds(customProvider),
         );
         pushView('provider-setup');
+        break;
+      case 'QWEN_WEB':
+        void handleQwenWebSubmit();
         break;
       default:
         break;
