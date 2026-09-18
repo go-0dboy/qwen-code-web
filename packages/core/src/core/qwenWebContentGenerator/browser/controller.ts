@@ -227,30 +227,41 @@ export class PuppeteerBrowserController {
 
   private async authenticate(signal?: AbortSignal): Promise<void> {
     throwIfAborted(signal);
-    await this.launch(true);
-    let page = await this.createPage(signal);
-    let status = await this.status(page);
-    if (status.loggedIn) {
-      await page.close().catch(() => undefined);
-      return;
+    try {
+      await this.launch(true);
+      let page = await this.createPage(signal);
+      let status = await this.status(page);
+      if (status.loggedIn) {
+        await page.close().catch(() => undefined);
+        return;
+      }
+
+      await this.closeBrowserOnly();
+      await this.launch(false);
+      page = await this.createPage(signal);
+      process.stderr.write(
+        '\nQwen Web login is required.\nA browser window has been opened temporarily.\n',
+      );
+
+      while (true) {
+        throwIfAborted(signal);
+        status = await this.status(page);
+        if (status.loggedIn) break;
+        await delay(750, signal);
+      }
+
+      await this.closeBrowserOnly();
+      await this.launch(true);
+      process.stderr.write(
+        'Login successful.\nBrowser returned to background mode.\n',
+      );
+    } catch (error) {
+      // Authentication owns the temporary visible/headless browser transition.
+      // On navigation/login/cancellation failures, close whichever browser is
+      // alive so Qwen Code never leaves a zombie process or visible window.
+      await this.closeBrowserOnly();
+      throw error;
     }
-
-    await this.closeBrowserOnly();
-    await this.launch(false);
-    page = await this.createPage(signal);
-    process.stderr.write(
-      '\nQwen Web login required. Complete sign-in in the browser window; Qwen Code will close it and continue headless after login.\n',
-    );
-
-    while (true) {
-      throwIfAborted(signal);
-      status = await this.status(page);
-      if (status.loggedIn) break;
-      await delay(750, signal);
-    }
-
-    await this.closeBrowserOnly();
-    await this.launch(true);
   }
 
   private async launch(headless: boolean): Promise<void> {
@@ -292,13 +303,18 @@ export class PuppeteerBrowserController {
     const browser = this.browser;
     if (!browser) throw new Error('Qwen Web browser is not running.');
     const page = await browser.newPage();
-    await page.evaluateOnNewDocument(installQwenWebPageRuntime);
-    await page.goto(QWEN_WEB_URL, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60_000,
-    });
-    await page.evaluate(installQwenWebPageRuntime);
-    return page;
+    try {
+      await page.evaluateOnNewDocument(installQwenWebPageRuntime);
+      await page.goto(QWEN_WEB_URL, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+      await page.evaluate(installQwenWebPageRuntime);
+      return page;
+    } catch (error) {
+      await page.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   private async createChannelPage(
@@ -306,15 +322,20 @@ export class PuppeteerBrowserController {
     signal?: AbortSignal,
   ): Promise<ChannelPage> {
     const page = await this.createPage(signal);
-    const status = await this.status(page);
-    if (!status.loggedIn) {
+    try {
+      const status = await this.status(page);
+      if (!status.loggedIn) {
+        await page.close().catch(() => undefined);
+        await this.reauthenticate(signal);
+        return this.createChannelPage(model, signal);
+      }
+      await this.selectModel(page, model);
+      this.pageEpoch += 1;
+      return { page, pageEpoch: this.pageEpoch, model };
+    } catch (error) {
       await page.close().catch(() => undefined);
-      await this.reauthenticate(signal);
-      return this.createChannelPage(model, signal);
+      throw error;
     }
-    await this.selectModel(page, model);
-    this.pageEpoch += 1;
-    return { page, pageEpoch: this.pageEpoch, model };
   }
 
   private async status(page: Page): Promise<QwenWebRuntimeStatus> {
@@ -331,7 +352,8 @@ export class PuppeteerBrowserController {
       if (!bridge) throw new Error('Qwen Web page runtime is not installed.');
       return bridge.selectModel(requested);
     }, model);
-    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const normalize = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]+/g, '');
     if (normalize(selected) !== normalize(model)) {
       throw new Error(
         `Qwen Web model mismatch: requested '${model}', selected '${selected}'.`,
