@@ -6,6 +6,7 @@
 
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { installQwenWebPageRuntime } from './pageRuntime.js';
+import { assertQwenWebModelSelection } from './modelSelection.js';
 import {
   ensureQwenWebBrowserDirectories,
   resolveQwenWebBrowserExecutable,
@@ -368,12 +369,6 @@ export class PuppeteerBrowserController {
       if (!bridge) throw new Error('Qwen Web page runtime is not installed.');
       return bridge.selectModel(requested);
     }, model);
-    const normalize = (value: string) =>
-      value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    if (normalize(selected) !== normalize(model)) {
-      throw new Error(
-        `Qwen Web model mismatch: requested '${model}', selected '${selected}'.`,
-      );
-    }
+    assertQwenWebModelSelection(model, selected);
   }
 }
