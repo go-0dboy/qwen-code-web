@@ -18,6 +18,8 @@ import type {
 } from './browserService.js';
 import type { QwenWebTransportState } from './browser/types.js';
 
+// Keep this transport contract in core CI; it is the clean-checkout checkpoint
+// after dependency/lockfile changes to the browser-backed provider.
 const MODEL = 'qwen3.8-max';
 const STATE: QwenWebTransportState = { browserEpoch: 1, pageEpoch: 1 };
 
