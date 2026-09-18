@@ -32,6 +32,8 @@ export interface QwenWebBrowserController {
   ): Promise<string>;
   stopGeneration(channel: string): Promise<void>;
   close(): Promise<void>;
+  /** Synchronous best-effort fallback used only from Node's exit event. */
+  forceKill?(): void;
 }
 
 export interface QwenWebBrowserServiceLike {
@@ -116,6 +118,13 @@ export class QwenWebBrowserService implements QwenWebBrowserServiceLike {
     await this.controller.close();
   }
 
+  forceKill(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.channelTails.clear();
+    this.controller.forceKill?.();
+  }
+
   private async enqueue<T>(
     channel: string,
     operation: () => Promise<T>,
@@ -147,8 +156,15 @@ export function getQwenWebBrowserService(): QwenWebBrowserService {
   singleton ??= new QwenWebBrowserService();
   if (!shutdownHookInstalled) {
     shutdownHookInstalled = true;
+    // Do not install SIGINT/SIGTERM handlers here: Qwen Code already owns its
+    // signal lifecycle. beforeExit gives natural shutdowns an async close path,
+    // while exit provides a synchronous final safety net when the host calls
+    // process.exit after its own cleanup.
     process.once('beforeExit', () => {
       void singleton?.close();
+    });
+    process.once('exit', () => {
+      singleton?.forceKill();
     });
   }
   return singleton;
